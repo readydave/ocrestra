@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  syntax-linux:
+    name: Syntax Checks (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Python compile checks
+        run: |
+          python -m py_compile ocr_gui.py
+          python -m py_compile ocr_app/__main__.py ocr_app/ui.py ocr_app/job_runner.py ocr_app/themes.py ocr_app/models.py ocr_app/config.py
+
+      - name: Bash launcher syntax
+        run: bash -n setup_env.sh
+
+      - name: Install fish for fish launcher syntax check
+        run: sudo apt-get update && sudo apt-get install -y fish
+
+      - name: Fish launcher syntax
+        run: fish -n setup_env.fish
+
+      - name: Desktop entry validation
+        run: |
+          sudo apt-get install -y desktop-file-utils
+          desktop-file-validate ocr_gui.desktop
+
+  syntax-windows:
+    name: Syntax Checks (Windows)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Python compile checks
+        run: |
+          python -m py_compile ocr_gui.py
+          python -m py_compile ocr_app/__main__.py ocr_app/ui.py ocr_app/job_runner.py ocr_app/themes.py ocr_app/models.py ocr_app/config.py
+
+      - name: PowerShell launcher smoke check
+        shell: powershell
+        run: .\setup_env.ps1 --alias
+
+      - name: Batch launcher smoke check
+        shell: cmd
+        run: setup_env.bat --alias

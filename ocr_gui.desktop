@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=OCRestra
+Comment=OCRestra PySide6 batch OCR launcher with isolated virtualenv
+Exec=/home/dave/scripts/OCR_App/setup_env.sh --run
+Path=/home/dave/scripts/OCR_App
+Terminal=false
+Categories=Utility;
+Icon=application-pdf
