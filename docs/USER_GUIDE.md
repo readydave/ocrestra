@@ -88,3 +88,14 @@ OCRmyPDF requires system tools in `PATH`:
 - qpdf
 
 See root `README.md` for distro-specific install commands.
+
+## 11) Operational Limits (Security/Stability)
+
+OCRestra enforces the following defaults:
+
+- Max queued files: `5000`
+- Max discovered PDFs per add operation: `20000`
+- Max recursive scan depth: `24`
+- Max input PDF size: `2 GiB`
+
+If a limit is hit, files are skipped and a warning is shown in the UI/log.

@@ -41,7 +41,9 @@
 
 ## Function Reference
 
-See `FUNCTION_INDEX.md` for an inventory of module functions and class methods.
+- `CODE_MAP.md`: where major behavior lives and how modules connect.
+- `FUNCTION_INDEX.md`: inventory of module functions and class methods.
+- `FUNCTION_DESCRIPTIONS.md`: plain-language function/method responsibilities.
 
 Regenerate it with:
 
