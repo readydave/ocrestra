@@ -37,6 +37,7 @@
 4. Update docs:
    - `FEATURES.md`
    - `USER_GUIDE.md`
+   - `TROUBLESHOOTING.md` (if failure modes change)
    - `README.md` highlights if user-facing.
 
 ## Function Reference

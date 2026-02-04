@@ -24,6 +24,10 @@ Batch OCR desktop app for Linux/Windows with drag-drop queueing, process-level c
 - OCR modes:
   - `Smart OCR (Skip text)`
   - `Force OCR (All pages)`
+- Optional GPU OCR backend:
+  - `Enable GPU Acceleration (NVIDIA CUDA)` via `ocrmypdf-easyocr`
+- Optional output-size profile:
+  - `Optimize for Smaller Output` (balanced compression)
 - Parallel presets (`Auto`, `Low`, `Balanced`, `High`, `Turbo`, `Max`, `Custom`)
 - Priority control (`Normal`, `Low Impact`, `Background`)
 - Per-file progress with color bands + batch progress bar with same color logic
@@ -92,6 +96,15 @@ Launch scripts prefer Python `3.13` / `3.12` / `3.11` / `3.10` and avoid `3.14` 
 - Ghostscript
 - qpdf
 
+## Optional GPU OCR Requirements (NVIDIA)
+
+To use `Enable GPU Acceleration (NVIDIA CUDA)`:
+
+- Python package in app venv:
+  - `./.venv/bin/python -m pip install ocrmypdf-easyocr`
+- NVIDIA driver + CUDA runtime compatible with installed `torch`
+- `nvidia-smi` available in `PATH` (also used for GPU/VRAM stats in the UI)
+
 ### Arch / Garuda
 
 ```bash
@@ -131,11 +144,15 @@ winget install QPDF.QPDF
 
 - `Advanced` section contains:
   - `OCR mode`
+  - `Enable GPU Acceleration (NVIDIA CUDA)`
+  - `Optimize for Smaller Output`
   - `Path display`
   - `Priority`
   - `Parallel files`
+- GPU and compression controls include hover help for recommended use cases/tradeoffs.
 - `Path display` controls how input paths render in table (`Full`, `Elided`, `Filename only`).
-- `Show Stats` toggles CPU/RAM metrics visibility.
+- `Show Stats` toggles metrics visibility (App/System CPU/RAM, plus NVIDIA GPU/VRAM when available).
+- Main panes are resizable via splitter handles with protected minimum widths for readability.
 - Hovering files over drop zone triggers highlighted border feedback.
 - Progress colors:
   - `0-25`: red

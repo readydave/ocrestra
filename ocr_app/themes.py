@@ -134,7 +134,7 @@ QComboBox {{
 QComboBox::drop-down {{
     subcontrol-origin: padding;
     subcontrol-position: top right;
-    width: 32px;
+    width: 30px;
     border-left: 1px solid {border_soft};
     background: {surface};
     border-top-right-radius: 8px;
@@ -215,10 +215,13 @@ QSplitter::handle {{
     background: {border};
 }}
 QSplitter::handle:horizontal {{
-    width: 1px;
+    width: 8px;
 }}
 QSplitter::handle:vertical {{
-    height: 1px;
+    height: 8px;
+}}
+QSplitter::handle:hover {{
+    background: {accent};
 }}
 """
 

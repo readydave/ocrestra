@@ -16,7 +16,7 @@ This isolates long-running OCR work and allows hard cancel via process terminati
   - `MainWindow` owns queue state, controls, scheduling, table updates, and logs.
   - `DropZone` handles drag-and-drop UX.
 - `ocr_app/job_runner.py`
-  - Worker entry that configures logging, executes OCR, emits completion metrics.
+  - Worker entry that configures logging, builds OCRmyPDF CLI args, executes OCR, emits completion metrics.
 - `ocr_app/models.py`
   - `TaskItem` dataclass for per-job state.
 - `ocr_app/config.py`
@@ -31,6 +31,7 @@ This isolates long-running OCR work and allows hard cancel via process terminati
 1. User adds files/folders.
 2. UI expands folders to PDFs and adds `TaskItem` rows.
 3. `Start OCR` computes parallelism and starts worker processes.
+   - Launch config includes OCR mode, GPU toggle, and output-size optimization toggle.
 4. Worker emits log/status/done events to multiprocessing queue.
 5. UI timer drains queues, updates progress and table state.
 6. Completion updates metrics/log summaries and action buttons.
@@ -64,3 +65,4 @@ Messages sent from worker to UI queue:
   - worker queue polling,
   - periodic metrics refresh,
   - periodic queue state save.
+- GPU/VRAM metrics are queried with `nvidia-smi` when available.

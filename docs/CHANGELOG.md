@@ -22,6 +22,11 @@ All notable changes to OCRestra should be documented here.
   - recursive (`All subfolders`)
   - non-recursive (`Top-level only`)
 - `Tools -> Reset to Defaults` to restore UI/processing preferences.
+- Advanced OCR controls:
+  - NVIDIA GPU acceleration toggle (`ocrmypdf-easyocr`)
+  - output-size optimization toggle (balanced compression)
+  - inline hover help for GPU/compression use cases
+- Footer runtime metrics for NVIDIA GPU utilization and VRAM (when `nvidia-smi` is available).
 
 ### Changed
 
@@ -39,3 +44,14 @@ All notable changes to OCRestra should be documented here.
   - safer temp cleanup boundaries
   - stricter output path handling (symlink protections)
   - safer worker config/path validation
+- Worker OCR command execution now:
+  - validates `ocrmypdf` availability with `shutil.which`
+  - supports EasyOCR plugin auto-registration behavior
+  - forces `--pdf-renderer sandwich` when EasyOCR GPU mode is enabled
+  - supports optional size-optimized output profile flags
+- Splitter UX tuning:
+  - larger draggable splitter handles
+  - non-collapsible pane behavior
+  - improved default splitter sizes and pane minimum widths
+- Theme/QSS cleanup:
+  - removed unsupported `content` property usage that caused terminal warnings

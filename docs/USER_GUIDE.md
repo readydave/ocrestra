@@ -24,8 +24,11 @@ Direct venv launch:
    - `Recursive (All subfolders)`
    - `Top-level only`
 3. Open `Advanced` to choose OCR mode, path display, priority, and parallel count.
+   - Optional: enable NVIDIA GPU OCR.
+   - Optional: enable smaller-output optimization.
 4. Click `Start OCR`.
 5. Monitor per-file progress bars, batch progress, and logs.
+   - Drag splitter handles to resize left config pane and right queue/log panes.
 6. Use row actions:
    - `Cancel` while running
    - `Open Folder` when done or skipped
@@ -35,11 +38,14 @@ Direct venv launch:
 
 - `Advanced` section
   - `OCR mode`: `Smart OCR (Skip text)` or `Force OCR (All pages)`
+  - `Enable GPU Acceleration (NVIDIA CUDA)` (requires `ocrmypdf-easyocr`)
+  - `Optimize for Smaller Output` (balanced compression, may reduce quality)
   - `Priority`: `Normal Priority`, `Low Impact`, `Background`
   - `Parallel files`: presets plus custom value
   - `Path display`: `Full path`, `Elided`, `Filename only`
+  - GPU/compression controls include hover help with use-case guidance.
 - `Show Stats`
-  - Toggles visibility of the CPU/RAM metrics row.
+  - Toggles visibility of runtime metrics row.
 
 ## 5) Menus
 
@@ -60,6 +66,7 @@ Direct venv launch:
   - Level filter: `Any`, `Warnings only`, `Errors only`
 - Per-file logs are written to `logs/<batch_id>/`.
 - Metrics row includes app CPU/RAM, system CPU/RAM, and active/queued count.
+- On NVIDIA systems with `nvidia-smi`, metrics row also shows GPU% and VRAM usage.
 
 ## 7) Output Behavior
 
@@ -87,6 +94,12 @@ OCRmyPDF requires system tools in `PATH`:
 - qpdf
 
 See root `README.md` for distro-specific install commands.
+
+Optional GPU OCR requirements:
+
+- `ocrmypdf-easyocr` installed in app venv
+- NVIDIA driver/CUDA stack
+- `nvidia-smi` available
 
 ## 11) Operational Limits (Security/Stability)
 

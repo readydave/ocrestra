@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.metadata
 import json
 import multiprocessing as mp
 import os
@@ -309,6 +310,8 @@ class MainWindow(QMainWindow):
         self.file_manager_custom_cmd = self.settings.value("file_manager_custom_cmd", "", type=str).strip()
         self.custom_manager_warned_this_session = False
         self.priority_mode = self.settings.value("priority_mode", "normal", type=str)
+        self.use_gpu_acceleration = self.settings.value("use_gpu_acceleration", False, type=bool)
+        self.optimize_for_size = self.settings.value("optimize_for_size", False, type=bool)
         valid_choices = {manager_id for manager_id, _label, _cmd in self._file_manager_options_for_platform()}
         valid_choices.add("custom")
         if self.file_manager_choice not in valid_choices:
@@ -329,6 +332,8 @@ class MainWindow(QMainWindow):
         self.batch_running = False
         self.current_worker_limit = DEFAULT_WORKERS
         self.current_force_ocr = False
+        self.current_use_gpu = False
+        self.current_optimize_for_size = False
         self.batch_log_dir: Path | None = None
 
         self.app_proc = psutil.Process(os.getpid())
@@ -418,6 +423,7 @@ class MainWindow(QMainWindow):
         config_scroll.setWidgetResizable(True)
         config_scroll.setFrameShape(QFrame.NoFrame)
         config_scroll.setObjectName("ConfigScrollArea")
+        config_scroll.setMinimumWidth(320)
 
         config_panel = QWidget(config_scroll)
         config_layout = QVBoxLayout(config_panel)
@@ -484,6 +490,24 @@ class MainWindow(QMainWindow):
         parallel_layout.addWidget(self.parallel_mode, 1)
         parallel_layout.addWidget(self.custom_workers)
         advanced_form.addRow("Parallel files", parallel_wrap)
+
+        gpu_help_text = (
+            "Use NVIDIA CUDA through the ocrmypdf-easyocr plugin.\n"
+            "Best for image-heavy scans and large batches.\n"
+            "Requires: ocrmypdf-easyocr, torch CUDA runtime, NVIDIA driver."
+        )
+        self.gpu_checkbox = QCheckBox("Enable GPU Acceleration (NVIDIA CUDA)")
+        self.gpu_checkbox.setChecked(self.use_gpu_acceleration)
+        advanced_form.addRow("", self._build_option_row(self.gpu_checkbox, gpu_help_text))
+
+        compression_help_text = (
+            "Applies balanced compression to reduce output size.\n"
+            "Good for email/sharing/cloud archives.\n"
+            "Avoid for legal/archival scans or very small/faint text."
+        )
+        self.optimize_size_checkbox = QCheckBox("Optimize for Smaller Output")
+        self.optimize_size_checkbox.setChecked(self.optimize_for_size)
+        advanced_form.addRow("", self._build_option_row(self.optimize_size_checkbox, compression_help_text))
         self.advanced_section.content_layout.addLayout(advanced_form)
         config_layout.addWidget(self.advanced_section)
 
@@ -497,6 +521,7 @@ class MainWindow(QMainWindow):
         self.main_splitter.addWidget(config_scroll)
 
         right_pane = QWidget()
+        right_pane.setMinimumWidth(620)
         right_layout = QVBoxLayout(right_pane)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(10)
@@ -548,7 +573,6 @@ class MainWindow(QMainWindow):
         self.show_stats_toggle = QCheckBox("Show Stats")
         stats_visible = self.settings.value("show_stats", True, type=bool)
         self.show_stats_toggle.setChecked(stats_visible)
-        stats_row.addWidget(self.show_stats_toggle)
 
         self.stats_frame = QFrame()
         self.stats_frame.setObjectName("StatsFrame")
@@ -559,6 +583,8 @@ class MainWindow(QMainWindow):
         self.metrics_app_ram = QLabel("App RAM: 0 B")
         self.metrics_sys_cpu = QLabel("System CPU: 0.0%")
         self.metrics_sys_ram = QLabel("System RAM: 0.0%")
+        self.metrics_gpu = QLabel("GPU: N/A")
+        self.metrics_gpu_vram = QLabel("VRAM: N/A")
         self.metrics_workers = QLabel("Active: 0 | Queued: 0")
         self.metrics_cpu_health = QLabel("CPU: Green")
         self.metrics_ram_health = QLabel("RAM: Green")
@@ -566,11 +592,15 @@ class MainWindow(QMainWindow):
         metrics_row.addWidget(self.metrics_app_ram)
         metrics_row.addWidget(self.metrics_sys_cpu)
         metrics_row.addWidget(self.metrics_sys_ram)
+        metrics_row.addWidget(self.metrics_gpu)
+        metrics_row.addWidget(self.metrics_gpu_vram)
         metrics_row.addWidget(self.metrics_cpu_health)
         metrics_row.addWidget(self.metrics_ram_health)
         metrics_row.addStretch()
         metrics_row.addWidget(self.metrics_workers)
         stats_row.addWidget(self.stats_frame, 1)
+        stats_row.addStretch()
+        stats_row.addWidget(self.show_stats_toggle)
         queue_layout.addLayout(stats_row)
 
         self.queue_log_splitter.addWidget(queue_panel)
@@ -612,6 +642,8 @@ class MainWindow(QMainWindow):
         self.parallel_mode.currentIndexChanged.connect(self._update_parallel_hint)
         self.custom_workers.valueChanged.connect(self._update_parallel_hint)
         self.ocr_mode.currentIndexChanged.connect(self._update_parallel_hint)
+        self.gpu_checkbox.toggled.connect(self._on_gpu_toggle_changed)
+        self.optimize_size_checkbox.toggled.connect(self._on_optimize_size_changed)
         self.priority_combo.currentIndexChanged.connect(self._on_priority_changed)
         self.path_display_combo.currentIndexChanged.connect(self._on_path_display_changed)
         self.log_filter_combo.currentIndexChanged.connect(self._refresh_log_view)
@@ -622,9 +654,13 @@ class MainWindow(QMainWindow):
         self.table.customContextMenuRequested.connect(self._show_table_context_menu)
         self.main_splitter.splitterMoved.connect(lambda _pos, _index: self._sync_empty_state_overlay())
         self.queue_log_splitter.splitterMoved.connect(lambda _pos, _index: self._sync_empty_state_overlay())
+        self.main_splitter.setChildrenCollapsible(False)
+        self.main_splitter.setHandleWidth(10)
+        self.queue_log_splitter.setChildrenCollapsible(False)
+        self.queue_log_splitter.setHandleWidth(10)
         self.main_splitter.setStretchFactor(0, 0)
         self.main_splitter.setStretchFactor(1, 1)
-        self.main_splitter.setSizes([420, 940])
+        self.main_splitter.setSizes([480, 880])
         self.queue_log_splitter.setStretchFactor(0, 2)
         self.queue_log_splitter.setStretchFactor(1, 1)
         self.queue_log_splitter.setSizes([520, 280])
@@ -736,6 +772,8 @@ class MainWindow(QMainWindow):
             "parallel_mode": "auto",
             "custom_workers": DEFAULT_WORKERS,
             "ocr_mode": "smart",
+            "use_gpu_acceleration": False,
+            "optimize_for_size": False,
             "folder_scan_recursive": True,
             "priority_mode": "normal",
             "path_display_mode": "elided",
@@ -751,6 +789,10 @@ class MainWindow(QMainWindow):
         self.custom_workers.setValue(DEFAULT_WORKERS)
         self._set_combo_data(self.priority_combo, "normal")
         self._set_combo_data(self.path_display_combo, "elided")
+        self.gpu_checkbox.setChecked(False)
+        self.optimize_size_checkbox.setChecked(False)
+        self.use_gpu_acceleration = False
+        self.optimize_for_size = False
         self.folder_scan_recursive = True
         self.priority_mode = "normal"
         self.path_display_mode = "elided"
@@ -772,9 +814,38 @@ class MainWindow(QMainWindow):
                 combo.setCurrentIndex(index)
                 return
 
+    def _build_option_row(self, checkbox: QCheckBox, tooltip: str) -> QWidget:
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        info = QToolButton()
+        info.setText("?")
+        info.setAutoRaise(True)
+        info.setToolTip(tooltip)
+        info.setCursor(Qt.WhatsThisCursor)
+
+        checkbox.setToolTip(tooltip)
+        layout.addWidget(checkbox)
+        layout.addWidget(info)
+        layout.addStretch()
+        return row
+
+    @staticmethod
+    def _easyocr_plugin_available() -> bool:
+        try:
+            importlib.metadata.version("ocrmypdf-easyocr")
+        except importlib.metadata.PackageNotFoundError:
+            return False
+        except Exception:
+            return False
+        return True
+
     def _check_runtime_dependencies(self) -> None:
         missing: list[str] = []
         checks = [
+            ("ocrmypdf", ["ocrmypdf"]),
             ("tesseract", ["tesseract"]),
             ("Ghostscript", ["gs", "gswin64c", "gswin32c"]),
             ("qpdf", ["qpdf"]),
@@ -818,9 +889,24 @@ class MainWindow(QMainWindow):
         workers = self._resolved_workers(max(1, self._count_pending()))
         ocr_mode = self.ocr_mode.currentData()
         mode_text = "Force OCR all pages" if ocr_mode == "force" else "Skip pages that already contain text"
+        gpu_enabled = bool(self.gpu_checkbox.isChecked()) if hasattr(self, "gpu_checkbox") else False
+        backend_text = "GPU plugin enabled (NVIDIA CUDA)" if gpu_enabled else "CPU mode"
+        size_enabled = bool(self.optimize_size_checkbox.isChecked()) if hasattr(self, "optimize_size_checkbox") else False
+        size_text = "Smaller output optimization ON" if size_enabled else "Standard output size"
         self.parallel_hint.setText(
-            f"Using up to {workers} parallel files. {mode_text}. This improves throughput, not single-file speed."
+            f"Using up to {workers} parallel files. {mode_text}. Backend: {backend_text}. {size_text}. "
+            "This improves throughput, not single-file speed."
         )
+
+    def _on_gpu_toggle_changed(self, checked: bool) -> None:
+        self.use_gpu_acceleration = bool(checked)
+        self.settings.setValue("use_gpu_acceleration", self.use_gpu_acceleration)
+        self._update_parallel_hint()
+
+    def _on_optimize_size_changed(self, checked: bool) -> None:
+        self.optimize_for_size = bool(checked)
+        self.settings.setValue("optimize_for_size", self.optimize_for_size)
+        self._update_parallel_hint()
 
     def _on_priority_changed(self) -> None:
         self.priority_mode = self.priority_combo.currentData()
@@ -1104,6 +1190,15 @@ class MainWindow(QMainWindow):
         if not pending:
             QMessageBox.information(self, "Nothing to process", "Add PDFs first.")
             return
+        if self.gpu_checkbox.isChecked() and not self._easyocr_plugin_available():
+            QMessageBox.warning(
+                self,
+                "GPU Plugin Missing",
+                "GPU acceleration requires the ocrmypdf-easyocr plugin in this virtual environment.\n\n"
+                "Install in the app venv, then relaunch:\n"
+                "  python -m pip install ocrmypdf-easyocr",
+            )
+            return
         if self.ocr_mode.currentData() == "force" and not self._confirm_force_ocr_risk(len(pending)):
             return
 
@@ -1114,9 +1209,13 @@ class MainWindow(QMainWindow):
         self.start_button.setEnabled(False)
         self.current_worker_limit = self._resolved_workers(len(pending))
         self.current_force_ocr = self.ocr_mode.currentData() == "force"
+        self.current_use_gpu = bool(self.gpu_checkbox.isChecked())
+        self.current_optimize_for_size = bool(self.optimize_size_checkbox.isChecked())
         self.settings.setValue("parallel_mode", self.parallel_mode.currentData())
         self.settings.setValue("custom_workers", self.custom_workers.value())
         self.settings.setValue("ocr_mode", self.ocr_mode.currentData())
+        self.settings.setValue("use_gpu_acceleration", self.current_use_gpu)
+        self.settings.setValue("optimize_for_size", self.current_optimize_for_size)
 
         batch_stamp = Path.cwd().name + "_" + uuid.uuid4().hex[:8]
         self.batch_log_dir = LOG_ROOT / batch_stamp
@@ -1139,7 +1238,9 @@ class MainWindow(QMainWindow):
         self._append_log(
             "Starting batch: "
             f"{self.total_batch} file(s), {self.current_worker_limit} parallel workers, "
-            f"{'force OCR' if self.current_force_ocr else 'smart OCR'} mode."
+            f"{'force OCR' if self.current_force_ocr else 'smart OCR'} mode, "
+            f"{'GPU plugin enabled' if self.current_use_gpu else 'CPU mode'}, "
+            f"{'size optimization enabled' if self.current_optimize_for_size else 'standard size profile'}."
         )
         self._schedule_tasks()
         self._update_batch_progress()
@@ -1226,6 +1327,8 @@ class MainWindow(QMainWindow):
             "log_file": str(task.log_file),
             "temp_dir": str(task.temp_dir),
             "force_ocr": self.current_force_ocr,
+            "use_gpu": self.current_use_gpu,
+            "optimize_for_size": self.current_optimize_for_size,
         }
         task.queue = mp.Queue()
         task.process = mp.Process(target=run_ocr_job, args=(config, task.queue), name=f"ocr-{task.task_id}")
@@ -1888,6 +1991,49 @@ class MainWindow(QMainWindow):
             return "Yellow", "#d4b830"
         return "Red", "#d64545"
 
+    @staticmethod
+    def _query_nvidia_gpu_metrics() -> tuple[float, int, int, int] | None:
+        if shutil.which("nvidia-smi") is None:
+            return None
+        try:
+            result = subprocess.run(
+                [
+                    "nvidia-smi",
+                    "--query-gpu=utilization.gpu,memory.used,memory.total",
+                    "--format=csv,noheader,nounits",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+        except Exception:
+            return None
+
+        utilization_values: list[float] = []
+        used_mib_total = 0
+        total_mib_total = 0
+        for raw_line in result.stdout.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            parts = [part.strip() for part in line.split(",")]
+            if len(parts) < 3:
+                continue
+            try:
+                util = float(parts[0])
+                used_mib = int(float(parts[1]))
+                total_mib = int(float(parts[2]))
+            except Exception:
+                continue
+            utilization_values.append(util)
+            used_mib_total += max(0, used_mib)
+            total_mib_total += max(0, total_mib)
+
+        if not utilization_values:
+            return None
+        return max(utilization_values), used_mib_total, total_mib_total, len(utilization_values)
+
     def _auto_adjust_table_columns(self) -> None:
         available = max(620, self.table.viewport().width())
         status_w = 96
@@ -1919,9 +2065,9 @@ class MainWindow(QMainWindow):
             return
         self.main_splitter.setOrientation(desired)
         if desired == Qt.Horizontal:
-            self.main_splitter.setSizes([420, 940])
+            self.main_splitter.setSizes([480, 880])
         else:
-            self.main_splitter.setSizes([360, 640])
+            self.main_splitter.setSizes([420, 580])
 
     def _sync_empty_state_overlay(self) -> None:
         if not hasattr(self, "empty_state_overlay"):
@@ -2034,6 +2180,19 @@ class MainWindow(QMainWindow):
         self.metrics_app_ram.setText(f"App RAM: {_format_bytes(app_ram)}")
         self.metrics_sys_cpu.setText(f"System CPU: {sys_cpu:.1f}%")
         self.metrics_sys_ram.setText(f"System RAM: {sys_ram:.1f}%")
+        gpu_stats = self._query_nvidia_gpu_metrics()
+        if gpu_stats is None:
+            self.metrics_gpu.setText("GPU: N/A")
+            self.metrics_gpu_vram.setText("VRAM: N/A")
+        else:
+            gpu_util, used_mib, total_mib, gpu_count = gpu_stats
+            used_bytes = used_mib * 1024 * 1024
+            total_bytes = total_mib * 1024 * 1024
+            suffix = f" ({gpu_count} GPUs)" if gpu_count > 1 else ""
+            self.metrics_gpu.setText(f"GPU: {gpu_util:.0f}%{suffix}")
+            self.metrics_gpu_vram.setText(
+                f"VRAM: {_format_bytes(used_bytes)} / {_format_bytes(total_bytes)}"
+            )
         cpu_state, cpu_color = self._resource_health(sys_cpu, 60.0, 85.0)
         ram_state, ram_color = self._resource_health(sys_ram, 70.0, 88.0)
         self.metrics_cpu_health.setText(f"CPU: {cpu_state}")
@@ -2132,6 +2291,8 @@ class MainWindow(QMainWindow):
             "version": 1,
             "queued_paths": queued_paths,
             "ocr_mode": self.ocr_mode.currentData() if hasattr(self, "ocr_mode") else "smart",
+            "use_gpu_acceleration": self.gpu_checkbox.isChecked() if hasattr(self, "gpu_checkbox") else False,
+            "optimize_for_size": self.optimize_size_checkbox.isChecked() if hasattr(self, "optimize_size_checkbox") else False,
             "parallel_mode": self.parallel_mode.currentData() if hasattr(self, "parallel_mode") else "auto",
             "custom_workers": self.custom_workers.value() if hasattr(self, "custom_workers") else DEFAULT_WORKERS,
             "priority_mode": self.priority_combo.currentData() if hasattr(self, "priority_combo") else "normal",
@@ -2209,6 +2370,8 @@ class MainWindow(QMainWindow):
             return
 
         self._set_combo_data(self.ocr_mode, str(data.get("ocr_mode", self.ocr_mode.currentData())))
+        self.gpu_checkbox.setChecked(bool(data.get("use_gpu_acceleration", self.gpu_checkbox.isChecked())))
+        self.optimize_size_checkbox.setChecked(bool(data.get("optimize_for_size", self.optimize_size_checkbox.isChecked())))
         self._set_combo_data(self.parallel_mode, str(data.get("parallel_mode", self.parallel_mode.currentData())))
         try:
             restored_workers = int(data.get("custom_workers", self.custom_workers.value()))
@@ -2237,7 +2400,7 @@ class MainWindow(QMainWindow):
             self,
             "Usage",
             "1) Drag PDFs/folders or use Add buttons.\n"
-            "2) Optional: open Advanced to tune Parallel files and Priority.\n"
+            "2) Optional: open Advanced to tune GPU, output size, parallel files, and priority.\n"
             "3) Click Start OCR.\n"
             "4) Cancel Selected/All to stop active jobs immediately.\n"
             "5) Output PDFs are written to OCR_Output next to originals.\n"
@@ -2254,7 +2417,7 @@ class MainWindow(QMainWindow):
             "- Drag-and-drop PDF/folder queue\n"
             "- Parallel OCR execution with live logs\n"
             "- Per-file cancel/open-log controls\n"
-            "- Runtime CPU/RAM health indicators\n\n"
+            "- Runtime CPU/RAM health indicators (+ NVIDIA GPU/VRAM when available)\n\n"
             "Powered by OCRmyPDF, Tesseract, Ghostscript, and qpdf.",
         )
 
@@ -2277,6 +2440,8 @@ class MainWindow(QMainWindow):
         self.settings.setValue("parallel_mode", self.parallel_mode.currentData())
         self.settings.setValue("custom_workers", self.custom_workers.value())
         self.settings.setValue("ocr_mode", self.ocr_mode.currentData())
+        self.settings.setValue("use_gpu_acceleration", self.gpu_checkbox.isChecked())
+        self.settings.setValue("optimize_for_size", self.optimize_size_checkbox.isChecked())
         self.settings.setValue("priority_mode", self.priority_combo.currentData())
         self.settings.setValue("path_display_mode", self.path_display_combo.currentData())
         self.settings.setValue("show_stats", self.show_stats_toggle.isChecked())

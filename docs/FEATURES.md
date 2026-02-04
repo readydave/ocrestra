@@ -17,10 +17,11 @@
 
 ## OCR Execution Engine
 
-- OCR processing uses OCRmyPDF library directly (no Docker shell pipeline).
+- OCR processing executes OCRmyPDF CLI in each worker process via validated argument lists (`subprocess.run`, no shell mode).
 - Each queued file runs in its own Python multiprocessing worker.
 - UI remains non-blocking while jobs run.
 - Cancel actions terminate worker processes immediately.
+- Runtime check verifies `ocrmypdf` exists in `PATH` before processing.
 
 ## OCR Modes
 
@@ -29,6 +30,18 @@
 - `Force OCR (All pages)`
   - Runs OCR on all pages.
   - Shows a confirmation warning because this mode can substantially increase output size and processing time.
+
+## GPU OCR and Output Size Profiles
+
+- `Enable GPU Acceleration (NVIDIA CUDA)`
+  - Uses `ocrmypdf-easyocr` plugin when available in the current venv.
+  - Worker automatically uses `--pdf-renderer sandwich` for EasyOCR compatibility.
+  - Failure logs include CPU fallback guidance.
+- `Optimize for Smaller Output`
+  - Applies balanced compression profile (`-O 2`, tuned JPEG/PNG quality).
+  - Useful for sharing/email/cloud storage.
+  - May reduce visual fidelity on faint/small text.
+- Advanced controls include hover tooltips describing recommended use cases and tradeoffs.
 
 ## Parallelization and Priority
 
@@ -65,6 +78,11 @@ When OCR fails due to mount/permission issues on `/mnt/...`:
   - `Skipped (Already Searchable)`
   - `Failed`
   - `Canceled`
+- Footer metrics include:
+  - app/system CPU and RAM
+  - NVIDIA GPU utilization and VRAM usage (when `nvidia-smi` is available)
+  - active/queued worker count
+- Main splitter and queue/log splitter are user-resizable with larger drag handles and min-width safeguards.
 
 ## Logging
 

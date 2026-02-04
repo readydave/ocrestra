@@ -45,10 +45,30 @@ Try:
 2. Avoid broken custom commands.
 3. If needed, set `System Default`.
 
+## Left Panel Text Is Clipped / Hard to Resize
+
+1. Drag the main splitter handle between the left config pane and right queue pane.
+2. Drag the queue/log splitter to rebalance center and bottom sections.
+3. If layout still feels off, restart the app to reset splitter defaults.
+
 ## OCR Works but "Too few characters" Appears
 
 This can be normal for low-text or decorative pages.  
 If final output is produced and searchable, no action is required.
+
+## GPU Mode Fails Immediately
+
+If GPU mode is enabled and OCR fails before processing:
+
+1. Confirm plugin is installed in the app venv:
+   - `./.venv/bin/python -m pip show ocrmypdf-easyocr`
+2. Confirm NVIDIA runtime is healthy:
+   - `nvidia-smi`
+3. If plugin is missing, install:
+   - `./.venv/bin/python -m pip install ocrmypdf-easyocr`
+4. Retry with GPU disabled to confirm CPU path works.
+
+Note: OCRestra uses EasyOCR with `--pdf-renderer sandwich` for compatibility.
 
 ## Output PDF Is Much Larger Than Input
 
@@ -61,12 +81,24 @@ Common causes:
 - `--deskew` (or related transforms) triggers image transcoding.
 - `jbig2` optimization tools are not installed.
 - Force OCR on already-searchable PDFs increases file size.
+- GPU EasyOCR with sandwich renderer can produce larger output.
 
 Actions:
 
 1. Use `Smart OCR (Skip text)` for mixed/searchable batches.
 2. Install optional `jbig2` encoder package on your platform.
-3. Compare output quality/settings before forcing OCR on all pages.
+3. Enable `Optimize for Smaller Output` in `Advanced` for balanced compression.
+4. Compare output quality/settings before forcing OCR on all pages.
+
+## GPU/VRAM Metrics Show N/A
+
+`Show Stats` includes GPU and VRAM only when `nvidia-smi` is available and functional.
+
+If GPU metrics show `N/A`:
+
+1. Run `nvidia-smi` in the same shell session.
+2. If it fails, fix driver/runtime first.
+3. Relaunch OCRestra after `nvidia-smi` is working.
 
 ## "Input exceeds limit" / oversized file skipped
 

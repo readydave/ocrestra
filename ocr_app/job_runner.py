@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import datetime as dt
+import importlib.metadata
 import logging
 import os
 import re
 import shutil
+import subprocess
 import time
 from pathlib import Path
 from queue import Full
 from typing import Any
 
-import ocrmypdf
 import psutil
 
 try:
@@ -61,19 +62,120 @@ def _configure_logging(log_file: Path, queue_obj: Any, task_id: str) -> None:
     logging.getLogger("ocrmypdf").setLevel(logging.INFO)
 
 
-def _run_ocr(input_pdf: Path, output_pdf: Path, force_ocr: bool) -> None:
+def _build_ocr_command(
+    ocrmypdf_bin: str,
+    input_pdf: Path,
+    output_pdf: Path,
+    force_ocr: bool,
+    use_gpu: bool,
+    optimize_for_size: bool,
+    include_easyocr_plugin: bool,
+) -> list[str]:
+    cmd = [
+        ocrmypdf_bin,
+        "--jobs",
+        "1",
+        "--rotate-pages",
+        "--deskew",
+    ]
+    if force_ocr:
+        cmd.append("--force-ocr")
+    else:
+        cmd.append("--skip-text")
+    if use_gpu:
+        # EasyOCR plugin currently requires sandwich renderer (no hOCR support).
+        cmd.extend(["--pdf-renderer", "sandwich"])
+    else:
+        cmd.extend(["--ocr-engine", "tesseract"])
+    if optimize_for_size:
+        cmd.extend(["-O", "2", "--jpeg-quality", "75", "--png-quality", "70"])
+    if include_easyocr_plugin:
+        cmd.extend(["--plugin", "ocrmypdf_easyocr"])
+    cmd.extend([str(input_pdf), str(output_pdf)])
+    return cmd
+
+
+def _easyocr_plugin_autoregistered() -> bool:
+    try:
+        entry_points = importlib.metadata.entry_points()
+        if hasattr(entry_points, "select"):
+            ocrmypdf_plugins = entry_points.select(group="ocrmypdf")
+        else:
+            ocrmypdf_plugins = entry_points.get("ocrmypdf", [])
+        for entry_point in ocrmypdf_plugins:
+            value = getattr(entry_point, "value", "")
+            if "ocrmypdf_easyocr" in value:
+                return True
+    except Exception:
+        return False
+    return False
+
+
+def _is_easyocr_duplicate_registration_error(message: str) -> bool:
+    lowered = message.lower()
+    return (
+        "plugin already registered under a different name" in lowered
+        and "ocrmypdf_easyocr" in lowered
+    )
+
+
+def _run_ocr(
+    ocrmypdf_bin: str,
+    input_pdf: Path,
+    output_pdf: Path,
+    force_ocr: bool,
+    use_gpu: bool,
+    optimize_for_size: bool,
+) -> None:
     if output_pdf.exists():
         output_pdf.unlink()
-    ocrmypdf.ocr(
-        str(input_pdf),
-        str(output_pdf),
-        jobs=1,
-        progress_bar=False,
-        rotate_pages=True,
-        deskew=True,
-        skip_text=not force_ocr,
-        force_ocr=force_ocr,
+    include_easyocr_plugin = use_gpu and not _easyocr_plugin_autoregistered()
+    cmd = _build_ocr_command(
+        ocrmypdf_bin,
+        input_pdf,
+        output_pdf,
+        force_ocr,
+        use_gpu=use_gpu,
+        optimize_for_size=optimize_for_size,
+        include_easyocr_plugin=include_easyocr_plugin,
     )
+    try:
+        subprocess.run(
+            cmd,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError("ocrmypdf executable is not available in PATH.") from exc
+    except subprocess.CalledProcessError as exc:
+        details = (exc.stderr or exc.stdout or "").strip()
+        if (
+            use_gpu
+            and include_easyocr_plugin
+            and _is_easyocr_duplicate_registration_error(details)
+        ):
+            retry_cmd = _build_ocr_command(
+                ocrmypdf_bin,
+                input_pdf,
+                output_pdf,
+                force_ocr,
+                use_gpu=use_gpu,
+                optimize_for_size=optimize_for_size,
+                include_easyocr_plugin=False,
+            )
+            subprocess.run(
+                retry_cmd,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            return
+        if details:
+            raise RuntimeError(f"ocrmypdf failed with exit code {exc.returncode}: {details}") from exc
+        raise RuntimeError(f"ocrmypdf failed with exit code {exc.returncode}.") from exc
 
 
 def _should_fallback_to_tmp(pdf_path: Path, exc: Exception) -> bool:
@@ -166,6 +268,8 @@ def run_ocr_job(config: dict[str, Any], queue_obj: Any) -> None:
         log_file = _safe_log_file(Path(config["log_file"]), task_id)
         temp_dir = _safe_temp_dir(Path(config["temp_dir"]), task_id)
         force_ocr = bool(config.get("force_ocr", False))
+        use_gpu = bool(config.get("use_gpu", False))
+        optimize_for_size = bool(config.get("optimize_for_size", False))
     except Exception as exc:  # noqa: BLE001
         queue_obj.put(
             {
@@ -231,32 +335,65 @@ def run_ocr_job(config: dict[str, Any], queue_obj: Any) -> None:
     logger.info("Input PDF: %s", input_pdf)
     logger.info("Output PDF: %s", output_pdf)
     logger.info("OCR mode: %s", "Force OCR all pages" if force_ocr else "Smart skip existing text")
+    logger.info("OCR backend: %s", "EasyOCR GPU plugin" if use_gpu else "CPU defaults")
+    logger.info(
+        "Output size profile: %s",
+        "Balanced compression (smaller output)" if optimize_for_size else "Standard",
+    )
     queue_obj.put({"type": "status", "task_id": task_id, "status": "Running"})
 
     success = False
     error_message = ""
+    ocrmypdf_bin = shutil.which("ocrmypdf")
     try:
-        output_pdf.parent.mkdir(parents=True, exist_ok=True)
-        _run_ocr(input_pdf, output_pdf, force_ocr)
-        success = True
-    except Exception as exc:  # noqa: BLE001
-        if _should_fallback_to_tmp(input_pdf, exc):
-            try:
-                used_fallback = True
-                logger.warning("Permission/mount issue detected. Retrying via %s", temp_dir)
-                temp_dir.mkdir(parents=True, exist_ok=True)
-                temp_input = temp_dir / input_pdf.name
-                temp_output = temp_dir / f"{input_pdf.stem}_ocr.pdf"
-                shutil.copy2(input_pdf, temp_input)
-                _run_ocr(temp_input, temp_output, force_ocr)
-                shutil.move(str(temp_output), str(output_pdf))
-                success = True
-            except Exception as fallback_exc:  # noqa: BLE001
-                error_message = f"{type(fallback_exc).__name__}: {fallback_exc}"
-                logger.exception("Fallback OCR failed for %s: %s", input_pdf, fallback_exc)
+        if not ocrmypdf_bin:
+            error_message = "ocrmypdf command was not found in PATH."
+            logger.error("%s", error_message)
+            queue_obj.put({"type": "status", "task_id": task_id, "status": "Failed"})
         else:
-            error_message = f"{type(exc).__name__}: {exc}"
-            logger.exception("OCR failed for %s: %s", input_pdf, exc)
+            try:
+                output_pdf.parent.mkdir(parents=True, exist_ok=True)
+                _run_ocr(
+                    ocrmypdf_bin,
+                    input_pdf,
+                    output_pdf,
+                    force_ocr,
+                    use_gpu,
+                    optimize_for_size,
+                )
+                success = True
+            except Exception as exc:  # noqa: BLE001
+                if _should_fallback_to_tmp(input_pdf, exc):
+                    try:
+                        used_fallback = True
+                        logger.warning("Permission/mount issue detected. Retrying via %s", temp_dir)
+                        temp_dir.mkdir(parents=True, exist_ok=True)
+                        temp_input = temp_dir / input_pdf.name
+                        temp_output = temp_dir / f"{input_pdf.stem}_ocr.pdf"
+                        shutil.copy2(input_pdf, temp_input)
+                        _run_ocr(
+                            ocrmypdf_bin,
+                            temp_input,
+                            temp_output,
+                            force_ocr,
+                            use_gpu,
+                            optimize_for_size,
+                        )
+                        shutil.move(str(temp_output), str(output_pdf))
+                        success = True
+                    except Exception as fallback_exc:  # noqa: BLE001
+                        error_message = f"{type(fallback_exc).__name__}: {fallback_exc}"
+                        if use_gpu:
+                            error_message += " GPU plugin failed; disable GPU Acceleration and retry on CPU."
+                        logger.exception("Fallback OCR failed for %s: %s", input_pdf, fallback_exc)
+                else:
+                    error_message = f"{type(exc).__name__}: {exc}"
+                    if use_gpu:
+                        error_message += " GPU plugin failed; disable GPU Acceleration and retry on CPU."
+                        logger.error(
+                            "GPU plugin run failed. CUDA/plugin may be missing; retry with GPU disabled."
+                        )
+                    logger.exception("OCR failed for %s: %s", input_pdf, exc)
     finally:
         duration = time.time() - start
         end_stamp = dt.datetime.now().isoformat(timespec="seconds")
