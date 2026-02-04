@@ -25,6 +25,7 @@
   - Uses OCRmyPDF skip-text behavior for searchable pages.
 - `Force OCR (All pages)`
   - Runs OCR on all pages.
+  - Shows a confirmation warning because this mode can substantially increase output size and processing time.
 
 ## Parallelization and Priority
 

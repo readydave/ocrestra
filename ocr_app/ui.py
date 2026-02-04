@@ -781,6 +781,8 @@ class MainWindow(QMainWindow):
         if not pending:
             QMessageBox.information(self, "Nothing to process", "Add PDFs first.")
             return
+        if self.ocr_mode.currentData() == "force" and not self._confirm_force_ocr_risk(len(pending)):
+            return
 
         self.active_run_token += 1
         self.total_batch = len(pending)
@@ -819,6 +821,19 @@ class MainWindow(QMainWindow):
         self._schedule_tasks()
         self._update_batch_progress()
         self._update_metrics_labels()
+
+    def _confirm_force_ocr_risk(self, file_count: int) -> bool:
+        answer = QMessageBox.warning(
+            self,
+            "Force OCR Warning",
+            "Force OCR will rasterize pages even when text already exists.\n\n"
+            "This can significantly increase file size and processing time "
+            "(especially for PDFs already OCR'd by tools like NAPS2).\n\n"
+            f"Continue with Force OCR for {file_count} file(s)?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        return answer == QMessageBox.Yes
 
     def _schedule_tasks(self) -> None:
         if not self.batch_running:
