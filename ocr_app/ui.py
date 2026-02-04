@@ -16,7 +16,7 @@ from pathlib import Path
 
 import psutil
 from PySide6.QtCore import QSettings, QStandardPaths, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QAction, QActionGroup, QDesktopServices, QDragEnterEvent, QDropEvent
+from PySide6.QtGui import QAction, QActionGroup, QDesktopServices, QDragEnterEvent, QDropEvent, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -89,6 +89,19 @@ FILE_MANAGER_OPTIONS_MACOS = [
 MAX_STATE_FILE_BYTES = 2 * 1024 * 1024
 MAX_RESTORE_PATHS = 5000
 MAX_CUSTOM_FILE_MANAGER_CMD_LEN = 512
+
+
+def _resolve_app_icon_path() -> Path | None:
+    assets_dir = Path(__file__).resolve().parent.parent / "assets"
+    candidates = []
+    if sys.platform.startswith("win"):
+        candidates = [assets_dir / "ocrestra.ico", assets_dir / "ocrestra.png"]
+    else:
+        candidates = [assets_dir / "ocrestra.png", assets_dir / "ocrestra.ico"]
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return candidate
+    return None
 
 
 def _format_bytes(size: int) -> str:
@@ -1992,6 +2005,14 @@ def run_app() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setOrganizationName(ORG_NAME)
+    app_icon = None
+    icon_path = _resolve_app_icon_path()
+    if icon_path is not None:
+        app_icon = QIcon(str(icon_path))
+        if not app_icon.isNull():
+            app.setWindowIcon(app_icon)
     window = MainWindow(app)
+    if app_icon is not None and not app_icon.isNull():
+        window.setWindowIcon(app_icon)
     window.show()
     return app.exec()

@@ -158,6 +158,13 @@ dolphin {path}
 ```
 
 This generates `~/.local/share/applications/ocrestra.desktop` with your local install path.
+If `assets/ocrestra.png` exists, it is used as the launcher icon.
+
+## App Icon
+
+- Window/taskbar icon is loaded from:
+  - `assets/ocrestra.png` (Linux/macOS preferred)
+  - `assets/ocrestra.ico` (Windows fallback/preferred)
 
 ## Development / CI
 

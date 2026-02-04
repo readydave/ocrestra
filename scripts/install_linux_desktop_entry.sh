@@ -4,6 +4,10 @@ set -euo pipefail
 APP_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 TARGET_FILE="$TARGET_DIR/ocrestra.desktop"
+ICON_FILE="$APP_DIR/assets/ocrestra.png"
+if [[ ! -f "$ICON_FILE" ]]; then
+  ICON_FILE="application-pdf"
+fi
 
 mkdir -p "$TARGET_DIR"
 
@@ -17,7 +21,7 @@ Exec=$APP_DIR/setup_env.sh --run
 Path=$APP_DIR
 Terminal=false
 Categories=Utility;
-Icon=application-pdf
+Icon=$ICON_FILE
 EOF
 
 chmod 0644 "$TARGET_FILE"

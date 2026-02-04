@@ -108,6 +108,7 @@ When OCR fails due to mount/permission issues on `/mnt/...`:
   - `Dark`
   - `Light`
 - Drop zone includes visible bordered state and hover feedback.
+- App/window icon loads from `assets/ocrestra.png` or `assets/ocrestra.ico` when present.
 
 ## Persistence
 
