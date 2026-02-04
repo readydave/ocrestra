@@ -40,7 +40,19 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .config import APP_NAME, DEFAULT_WORKERS, LOG_ROOT, MAX_WORKERS, ORG_NAME, SETTINGS_APP, TEMP_ROOT
+from .config import (
+    APP_NAME,
+    DEFAULT_WORKERS,
+    LOG_ROOT,
+    MAX_DISCOVERED_PDFS,
+    MAX_INPUT_FILE_BYTES,
+    MAX_QUEUE_ITEMS,
+    MAX_SCAN_DEPTH,
+    MAX_WORKERS,
+    ORG_NAME,
+    SETTINGS_APP,
+    TEMP_ROOT,
+)
 from .job_runner import run_ocr_job
 from .models import TaskItem
 from .themes import apply_theme
@@ -597,9 +609,25 @@ class MainWindow(QMainWindow):
 
     def add_paths(self, raw_paths: list[str]) -> None:
         added = 0
+        skipped_large = 0
+        queue_limit_hit = False
         for pdf_path in self._expand_to_pdfs(raw_paths):
+            if len(self.tasks) >= MAX_QUEUE_ITEMS:
+                queue_limit_hit = True
+                break
+
             path_key = str(pdf_path)
             if path_key in self.path_to_task:
+                continue
+            try:
+                file_size = pdf_path.stat().st_size
+            except Exception:
+                file_size = 0
+            if file_size > MAX_INPUT_FILE_BYTES:
+                skipped_large += 1
+                self._append_log(
+                    f"Skipped oversized PDF ({_format_bytes(file_size)}): {pdf_path}"
+                )
                 continue
 
             task_id = uuid.uuid4().hex[:12]
@@ -645,8 +673,22 @@ class MainWindow(QMainWindow):
 
         if added:
             self._append_log(f"Queued {added} PDF file(s).")
-        else:
+        elif skipped_large == 0 and not queue_limit_hit:
             self._append_log("No new PDFs found in dropped/selected paths.")
+        if skipped_large:
+            self._append_log(
+                f"Skipped {skipped_large} file(s) larger than {_format_bytes(MAX_INPUT_FILE_BYTES)}."
+            )
+        if queue_limit_hit:
+            self._append_log(
+                f"Queue limit reached ({MAX_QUEUE_ITEMS} items). Add fewer files per batch."
+            )
+            QMessageBox.warning(
+                self,
+                "Queue Limit Reached",
+                f"Maximum queue size is {MAX_QUEUE_ITEMS} files.\n"
+                "Start/clear current jobs, then add more files.",
+            )
         self._update_parallel_hint()
         self._update_metrics_labels()
         self._save_queue_state()
@@ -654,6 +696,8 @@ class MainWindow(QMainWindow):
     def _expand_to_pdfs(self, raw_paths: list[str]) -> list[Path]:
         discovered: list[Path] = []
         seen: set[str] = set()
+        hit_discovery_limit = False
+        hit_depth_limit = False
         for raw in raw_paths:
             path = Path(raw).expanduser()
             if not path.exists():
@@ -664,11 +708,23 @@ class MainWindow(QMainWindow):
                 if key not in seen:
                     discovered.append(resolved)
                     seen.add(key)
+                    if len(discovered) >= MAX_DISCOVERED_PDFS:
+                        hit_discovery_limit = True
+                        break
                 continue
             if path.is_dir():
                 try:
                     for root, dirs, files in os.walk(path, topdown=True, followlinks=False):
                         root_path = Path(root)
+                        try:
+                            rel_parts = root_path.relative_to(path).parts
+                            depth = len(rel_parts)
+                        except Exception:
+                            depth = 0
+                        if depth >= MAX_SCAN_DEPTH:
+                            dirs[:] = []
+                            hit_depth_limit = True
+                            continue
                         dirs[:] = [name for name in dirs if not (root_path / name).is_symlink()]
                         for filename in files:
                             if not filename.lower().endswith(".pdf"):
@@ -681,8 +737,23 @@ class MainWindow(QMainWindow):
                             if key not in seen:
                                 discovered.append(resolved)
                                 seen.add(key)
+                                if len(discovered) >= MAX_DISCOVERED_PDFS:
+                                    hit_discovery_limit = True
+                                    break
+                        if hit_discovery_limit:
+                            break
                 except Exception:
                     continue
+            if hit_discovery_limit:
+                break
+        if hit_discovery_limit:
+            self._append_log(
+                f"Discovery limit reached at {MAX_DISCOVERED_PDFS} PDFs. Narrow your selection."
+            )
+        if hit_depth_limit:
+            self._append_log(
+                f"Skipped folders deeper than {MAX_SCAN_DEPTH} levels during scan."
+            )
         return discovered
 
     def clear_tasks(self) -> None:
@@ -765,7 +836,45 @@ class MainWindow(QMainWindow):
             self._start_task(task)
 
     def _start_task(self, task: TaskItem) -> None:
-        task.output_path = self._next_output_path(task.input_path.parent / "OCR_Output", task.input_path.stem)
+        if not task.input_path.exists():
+            task.status = "Failed"
+            self._set_status(task, "Failed")
+            self._set_result(task, "Input file missing")
+            self._set_progress(task, 0)
+            self._refresh_action_button(task)
+            self._append_log(f"Input file not found: {task.input_path}")
+            self._mark_batch_progress(task)
+            return
+        try:
+            input_size = task.input_path.stat().st_size
+        except Exception:
+            input_size = 0
+        if input_size > MAX_INPUT_FILE_BYTES:
+            task.status = "Failed"
+            self._set_status(task, "Failed")
+            self._set_result(
+                task,
+                f"Input exceeds limit ({_format_bytes(MAX_INPUT_FILE_BYTES)} max)",
+            )
+            self._set_progress(task, 0)
+            self._refresh_action_button(task)
+            self._append_log(
+                f"Input too large ({_format_bytes(input_size)}): {task.input_path}"
+            )
+            self._mark_batch_progress(task)
+            return
+
+        try:
+            task.output_path = self._next_output_path(task.input_path.parent / "OCR_Output", task.input_path.stem)
+        except Exception as exc:
+            task.status = "Failed"
+            self._set_status(task, "Failed")
+            self._set_result(task, f"Output path setup failed: {exc}")
+            self._set_progress(task, 0)
+            self._refresh_action_button(task)
+            self._append_log(f"Failed to prepare output path for {task.input_path}: {exc}")
+            self._mark_batch_progress(task)
+            return
         if self.batch_log_dir is None:
             self.batch_log_dir = LOG_ROOT
         safe_name = _safe_file_part(task.input_path.stem)
@@ -992,6 +1101,15 @@ class MainWindow(QMainWindow):
                 return task_id
         return None
 
+    @staticmethod
+    def _is_path_within(base: Path, path: Path) -> bool:
+        try:
+            base_resolved = base.resolve()
+            path_resolved = path.resolve()
+        except Exception:
+            return False
+        return path_resolved == base_resolved or base_resolved in path_resolved.parents
+
     def _display_input_path(self, path: Path) -> str:
         mode = self.path_display_combo.currentData() if hasattr(self, "path_display_combo") else self.path_display_mode
         full = str(path)
@@ -1055,9 +1173,18 @@ class MainWindow(QMainWindow):
         self._close_task_process(task)
 
     def _cleanup_task_files(self, task: TaskItem) -> None:
-        shutil.rmtree(task.temp_dir, ignore_errors=True)
         try:
-            if task.output_path.exists():
+            if self._is_path_within(TEMP_ROOT, task.temp_dir):
+                shutil.rmtree(task.temp_dir, ignore_errors=True)
+        except Exception:
+            pass
+        try:
+            output_root = task.input_path.parent / "OCR_Output"
+            is_safe_output = (
+                task.output_path.suffix.lower() == ".pdf"
+                and self._is_path_within(output_root, task.output_path)
+            )
+            if is_safe_output and task.output_path.exists() and not task.output_path.is_symlink():
                 task.output_path.unlink()
         except Exception:
             pass
@@ -1678,7 +1805,8 @@ class MainWindow(QMainWindow):
             return
         queued_paths: list[str] = []
         seen: set[str] = set()
-        for raw_path in queued_raw[:MAX_RESTORE_PATHS]:
+        restore_cap = min(MAX_RESTORE_PATHS, MAX_QUEUE_ITEMS)
+        for raw_path in queued_raw[:restore_cap]:
             try:
                 candidate = Path(str(raw_path)).expanduser().resolve()
             except Exception:
@@ -1827,16 +1955,22 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _next_output_path(target_dir: Path, stem: str) -> Path:
+        if target_dir.exists() and target_dir.is_symlink():
+            raise RuntimeError(f"Refusing symlink output directory: {target_dir}")
         target_dir.mkdir(parents=True, exist_ok=True)
+        if target_dir.is_symlink():
+            raise RuntimeError(f"Refusing symlink output directory: {target_dir}")
+
         candidate = target_dir / f"{stem}.pdf"
-        if not candidate.exists():
+        if not candidate.exists() and not candidate.is_symlink():
             return candidate
         idx = 2
-        while True:
+        while idx <= 100000:
             alt = target_dir / f"{stem}_{idx}.pdf"
-            if not alt.exists():
+            if not alt.exists() and not alt.is_symlink():
                 return alt
             idx += 1
+        raise RuntimeError("Could not allocate safe output filename.")
 
 
 def run_app() -> int:

@@ -18,6 +18,8 @@
 2. Launch with `python -m ocr_app`
 3. Run compile checks:
    - `python -m py_compile ocr_gui.py ocr_app/__main__.py ocr_app/ui.py ocr_app/job_runner.py ocr_app/themes.py ocr_app/models.py ocr_app/config.py`
+4. Run local security scan helper (optional but recommended):
+   - `./scripts/security_scan.sh`
 
 ## Coding Notes
 
@@ -25,6 +27,7 @@
 - Worker communication should happen through queue events only.
 - New per-task data should generally live in `TaskItem.metrics`.
 - For security-sensitive command execution, avoid `shell=True` and validate inputs.
+- Keep safety limits centralized in `ocr_app/config.py` and avoid hardcoding thresholds in UI/worker code.
 
 ## Adding a New Feature
 

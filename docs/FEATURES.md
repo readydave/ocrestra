@@ -6,6 +6,11 @@
 - Folder import scans recursively for `.pdf` (case-insensitive).
 - Symlink directory traversal is disabled during folder walk.
 - Duplicate files are de-duplicated per queue by resolved path.
+- Queue and discovery limits:
+  - max queued files: `5000`
+  - max discovered PDFs per add operation: `20000`
+  - max scan depth: `24`
+  - max accepted input file size: `2 GiB`
 
 ## OCR Execution Engine
 
@@ -89,6 +94,11 @@ When OCR fails due to mount/permission issues on `/mnt/...`:
   - Validates executable presence.
   - Blocks shell-control characters and shell launcher wrappers.
   - Prompts once per session before first execution.
+
+## CI Security Checks
+
+- Secret scan with Gitleaks on push/PR.
+- Dependency vulnerability scan with `pip-audit` on push/PR.
 
 ## Themes
 

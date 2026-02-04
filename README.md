@@ -152,10 +152,27 @@ dolphin {path}
 ## Optional Linux Desktop Launcher
 
 ```bash
-cp ocr_gui.desktop ~/.local/share/applications/
+./scripts/install_linux_desktop_entry.sh
 ```
+
+This generates `~/.local/share/applications/ocrestra.desktop` with your local install path.
 
 ## Development / CI
 
 - Python dependencies are pinned in `requirements.txt` for reproducible installs.
 - GitHub Actions workflow: `.github/workflows/ci.yml`
+- Security workflow: `.github/workflows/security.yml` (Gitleaks + pip-audit)
+
+## Security Hardening
+
+- Queue/file safety limits:
+  - max queued items: `5000`
+  - max discovered PDFs per add operation: `20000`
+  - max input file size: `2 GiB`
+  - max recursive scan depth: `24`
+- Path safety:
+  - output temp cleanup restricted to configured temp root
+  - output naming refuses symlink output directories/files
+- Secret and dependency scanning:
+  - CI: `.github/workflows/security.yml`
+  - Local helper: `./scripts/security_scan.sh`

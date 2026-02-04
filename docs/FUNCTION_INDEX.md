@@ -36,6 +36,9 @@ python scripts/gen_function_index.py
 - `_cleanup_temp_dir`
 - `_sanitize_task_id`
 - `_safe_temp_dir`
+- `_is_path_within`
+- `_safe_log_file`
+- `_safe_output_pdf`
 - `run_ocr_job`
 
 ### Classes
@@ -99,6 +102,7 @@ python scripts/gen_function_index.py
   - `_show_table_context_menu`
   - `_copy_to_clipboard`
   - `_task_id_for_row`
+  - `_is_path_within`
   - `_display_input_path`
   - `_on_path_display_changed`
   - `_close_task_process`

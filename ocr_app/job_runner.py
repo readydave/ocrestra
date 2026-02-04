@@ -14,9 +14,9 @@ import ocrmypdf
 import psutil
 
 try:
-    from .config import TEMP_ROOT
+    from .config import LOG_ROOT, MAX_INPUT_FILE_BYTES, TEMP_ROOT
 except ImportError:  # pragma: no cover - direct script execution fallback
-    from config import TEMP_ROOT  # type: ignore
+    from config import LOG_ROOT, MAX_INPUT_FILE_BYTES, TEMP_ROOT  # type: ignore
 
 
 class QueueLogHandler(logging.Handler):
@@ -129,13 +129,65 @@ def _safe_temp_dir(path: Path, task_id: str) -> Path:
     return fallback
 
 
+def _is_path_within(base: Path, path: Path) -> bool:
+    try:
+        base_resolved = base.resolve()
+        path_resolved = path.resolve()
+    except Exception:
+        return False
+    return path_resolved == base_resolved or base_resolved in path_resolved.parents
+
+
+def _safe_log_file(path: Path, task_id: str) -> Path:
+    fallback = LOG_ROOT / "worker_logs" / f"{task_id}.log"
+    try:
+        if _is_path_within(LOG_ROOT, path.parent):
+            return path
+    except Exception:
+        return fallback
+    return fallback
+
+
+def _safe_output_pdf(path: Path) -> Path:
+    if path.suffix.lower() != ".pdf":
+        raise ValueError("Output path must be a PDF.")
+    if path.exists() and path.is_symlink():
+        raise PermissionError("Refusing to overwrite symlink output file.")
+    if path.parent.exists() and path.parent.is_symlink():
+        raise PermissionError("Refusing symlink output directory.")
+    return path
+
+
 def run_ocr_job(config: dict[str, Any], queue_obj: Any) -> None:
     task_id = _sanitize_task_id(config.get("task_id", "task"))
-    input_pdf = Path(config["input_pdf"])
-    output_pdf = Path(config["output_pdf"])
-    log_file = Path(config["log_file"])
-    temp_dir = _safe_temp_dir(Path(config["temp_dir"]), task_id)
-    force_ocr = bool(config.get("force_ocr", False))
+    try:
+        input_pdf = Path(config["input_pdf"])
+        output_pdf = _safe_output_pdf(Path(config["output_pdf"]))
+        log_file = _safe_log_file(Path(config["log_file"]), task_id)
+        temp_dir = _safe_temp_dir(Path(config["temp_dir"]), task_id)
+        force_ocr = bool(config.get("force_ocr", False))
+    except Exception as exc:  # noqa: BLE001
+        queue_obj.put(
+            {
+                "type": "done",
+                "task_id": task_id,
+                "success": False,
+                "error": f"Invalid task configuration: {exc}",
+                "output_pdf": "",
+                "used_fallback": False,
+                "duration_seconds": 0.0,
+                "input_size": 0,
+                "output_size": 0,
+                "size_ratio": 0.0,
+                "rss_start": 0,
+                "rss_end": 0,
+                "cpu_user_delta": 0.0,
+                "cpu_system_delta": 0.0,
+                "start_stamp": dt.datetime.now().isoformat(timespec="seconds"),
+                "end_stamp": dt.datetime.now().isoformat(timespec="seconds"),
+            }
+        )
+        return
 
     _configure_logging(log_file, queue_obj, task_id)
     logger = logging.getLogger("ocr_gui.worker")
@@ -146,6 +198,33 @@ def run_ocr_job(config: dict[str, Any], queue_obj: Any) -> None:
     start_rss = proc.memory_info().rss
     start_cpu = proc.cpu_times()
     input_size = _safe_size(input_pdf)
+    if input_size > MAX_INPUT_FILE_BYTES:
+        error = (
+            f"Input file is too large ({input_size} bytes). "
+            f"Limit is {MAX_INPUT_FILE_BYTES} bytes."
+        )
+        queue_obj.put({"type": "status", "task_id": task_id, "status": "Failed"})
+        queue_obj.put(
+            {
+                "type": "done",
+                "task_id": task_id,
+                "success": False,
+                "error": error,
+                "output_pdf": str(output_pdf),
+                "used_fallback": False,
+                "duration_seconds": 0.0,
+                "input_size": input_size,
+                "output_size": 0,
+                "size_ratio": 0.0,
+                "rss_start": start_rss,
+                "rss_end": start_rss,
+                "cpu_user_delta": 0.0,
+                "cpu_system_delta": 0.0,
+                "start_stamp": dt.datetime.now().isoformat(timespec="seconds"),
+                "end_stamp": dt.datetime.now().isoformat(timespec="seconds"),
+            }
+        )
+        return
     used_fallback = False
 
     logger.info("Task %s started.", task_id)

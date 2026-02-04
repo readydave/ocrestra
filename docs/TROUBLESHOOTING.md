@@ -50,6 +50,13 @@ Try:
 This can be normal for low-text or decorative pages.  
 If final output is produced and searchable, no action is required.
 
+## "Input exceeds limit" / oversized file skipped
+
+OCRestra enforces a max input file size (`2 GiB` by default).  
+Large files are skipped for stability and resource protection.
+
+If needed, split the PDF before OCR or raise `MAX_INPUT_FILE_BYTES` in `ocr_app/config.py`.
+
 ## Output Missing on `/mnt`
 
 If direct output fails, OCRestra retries via temp staging.  
