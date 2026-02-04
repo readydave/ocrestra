@@ -2,6 +2,17 @@
 
 Batch OCR desktop app for Linux/Windows with drag-drop queueing, process-level cancel, live metrics, log filtering, and persistent session restore.
 
+## Documentation
+
+- Docs index: `docs/README.md`
+- User guide: `docs/USER_GUIDE.md`
+- Feature reference: `docs/FEATURES.md`
+- Troubleshooting: `docs/TROUBLESHOOTING.md`
+- Architecture: `docs/ARCHITECTURE.md`
+- Developer guide: `docs/DEVELOPER.md`
+- Function index: `docs/FUNCTION_INDEX.md`
+- Changelog: `docs/CHANGELOG.md`
+
 ## Highlights
 
 - Drag/drop PDFs or folders (recursive scan)
