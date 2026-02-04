@@ -20,34 +20,33 @@ Direct venv launch:
 ## 3) Basic Workflow
 
 1. Add files via drag/drop or `Add PDFs` / `Add Folder`.
-2. Choose OCR mode and parallel file count.
-3. Click `Start OCR`.
-4. Monitor per-file progress bars, batch progress, and logs.
-5. Use row actions:
+2. If using `Add Folder`, choose scan mode:
+   - `Recursive (All subfolders)`
+   - `Top-level only`
+3. Open `Advanced` to choose OCR mode, path display, priority, and parallel count.
+4. Click `Start OCR`.
+5. Monitor per-file progress bars, batch progress, and logs.
+6. Use row actions:
    - `Cancel` while running
    - `Open Folder` when done or skipped
    - `View Log` to inspect per-file log output
 
 ## 4) Controls Overview
 
-- `OCR mode`
-  - `Smart OCR (Skip text)`: skips OCR on pages that already contain text.
-  - `Force OCR (All pages)`: rasterizes and OCRs all pages.
-- `Priority`
-  - `Normal Priority`
-  - `Low Impact`
-  - `Background` (uses lower scheduling priority; Linux also attempts `ionice`).
-- `Parallel files`
-  - Presets plus custom value.
-  - Improves throughput for batches, not single-file speed.
-- `Path`
-  - `Full path`, `Elided`, `Filename only`.
+- `Advanced` section
+  - `OCR mode`: `Smart OCR (Skip text)` or `Force OCR (All pages)`
+  - `Priority`: `Normal Priority`, `Low Impact`, `Background`
+  - `Parallel files`: presets plus custom value
+  - `Path display`: `Full path`, `Elided`, `Filename only`
+- `Show Stats`
+  - Toggles visibility of the CPU/RAM metrics row.
 
 ## 5) Menus
 
 - `File`: add files/folders, start/cancel, exit.
-- `View -> Theme`: `System`, `Dark`, `Light`.
 - `Tools`
+  - `Themes` (`System`, `Dark`, `Light`)
+  - `Reset to Defaults`
   - `Open Log Folder`
   - `File Manager` selector (`Auto`, `System`, platform-specific options, `Custom Command`)
 - `Help`

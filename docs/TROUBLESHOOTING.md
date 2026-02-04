@@ -50,6 +50,24 @@ Try:
 This can be normal for low-text or decorative pages.  
 If final output is produced and searchable, no action is required.
 
+## Output PDF Is Much Larger Than Input
+
+Example OCRmyPDF warning:
+
+- `The output file size is 2.85× larger than the input file.`
+
+Common causes:
+
+- `--deskew` (or related transforms) triggers image transcoding.
+- `jbig2` optimization tools are not installed.
+- Force OCR on already-searchable PDFs increases file size.
+
+Actions:
+
+1. Use `Smart OCR (Skip text)` for mixed/searchable batches.
+2. Install optional `jbig2` encoder package on your platform.
+3. Compare output quality/settings before forcing OCR on all pages.
+
 ## "Input exceeds limit" / oversized file skipped
 
 OCRestra enforces a max input file size (`2 GiB` by default).  
@@ -71,6 +89,15 @@ If OCR does not start or fails early, verify:
 - `qpdf`
 
 See root `README.md` for install commands by distro.
+
+## Linux Portal Warning at Launch
+
+Example:
+
+- `qt.qpa.services: Failed to register with host portal ... App info not found ...`
+
+Usually harmless in local/dev runs without an installed desktop entry.  
+If desired, install the desktop entry script from root `README.md` to provide a matching app ID.
 
 ## If You Need Deep Diagnostics
 

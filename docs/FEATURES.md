@@ -3,7 +3,10 @@
 ## Queue Ingestion
 
 - Drag-and-drop accepts PDF files and folders.
-- Folder import scans recursively for `.pdf` (case-insensitive).
+- Folder import mode is selectable per add operation:
+  - recursive scan (all subfolders)
+  - top-level only (selected folder only)
+- PDF matching is case-insensitive.
 - Symlink directory traversal is disabled during folder walk.
 - Duplicate files are de-duplicated per queue by resolved path.
 - Queue and discovery limits:
@@ -107,11 +110,14 @@ When OCR fails due to mount/permission issues on `/mnt/...`:
   - `System` (default)
   - `Dark`
   - `Light`
+- Theme selection is under `Tools -> Themes`.
+- `Tools -> Reset to Defaults` restores theme and processing preferences.
 - Drop zone includes visible bordered state and hover feedback.
 - App/window icon loads from `assets/ocrestra.png` or `assets/ocrestra.ico` when present.
 
 ## Persistence
 
 - Last directory remembered for dialogs.
+- Last folder scan mode preference remembered for `Add Folder`.
 - Queue state saved and restorable across restarts.
 - Restore path list is size-limited and validated for safety.

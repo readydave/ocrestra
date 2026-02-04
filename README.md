@@ -17,7 +17,10 @@ Batch OCR desktop app for Linux/Windows with drag-drop queueing, process-level c
 
 ## Highlights
 
-- Drag/drop PDFs or folders (recursive scan)
+- Drag/drop PDFs or folders
+- `Add Folder` scan mode prompt:
+  - recursive (`All subfolders`)
+  - non-recursive (`Top-level only`)
 - OCR modes:
   - `Smart OCR (Skip text)`
   - `Force OCR (All pages)`
@@ -39,7 +42,8 @@ Batch OCR desktop app for Linux/Windows with drag-drop queueing, process-level c
 - File-manager selection menu (`Tools -> File Manager`) with unavailable managers disabled
 - `/mnt` permission/mount fallback via temp staging and move-back
 - Queue/session persistence with restore prompt on restart
-- Theme menu: `System` (default), `Dark`, `Light`
+- Theme menu: `Tools -> Themes` (`System`, `Dark`, `Light`)
+- `Tools -> Reset to Defaults` for UI and processing preferences
 
 ## Quick Start
 
@@ -125,7 +129,13 @@ winget install QPDF.QPDF
 
 ## UI Notes
 
-- `Path` selector controls how input paths display in table (`Full`, `Elided`, `Filename only`).
+- `Advanced` section contains:
+  - `OCR mode`
+  - `Path display`
+  - `Priority`
+  - `Parallel files`
+- `Path display` controls how input paths render in table (`Full`, `Elided`, `Filename only`).
+- `Show Stats` toggles CPU/RAM metrics visibility.
 - Hovering files over drop zone triggers highlighted border feedback.
 - Progress colors:
   - `0-25`: red
