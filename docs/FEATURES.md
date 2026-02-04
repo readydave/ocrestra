@@ -36,7 +36,8 @@
 - `Enable GPU Acceleration (NVIDIA CUDA)`
   - Uses `ocrmypdf-easyocr` plugin when available in the current venv.
   - Worker automatically uses `--pdf-renderer sandwich` for EasyOCR compatibility.
-  - Failure logs include CPU fallback guidance.
+  - On GPU/plugin-specific failures, worker retries once on CPU automatically.
+  - Worker avoids duplicate EasyOCR plugin registration conflicts.
 - `Optimize for Smaller Output`
   - Applies balanced compression profile (`-O 2`, tuned JPEG/PNG quality).
   - Useful for sharing/email/cloud storage.
@@ -92,6 +93,7 @@ When OCR fails due to mount/permission issues on `/mnt/...`:
 - Per-file log files stored under `logs/<batch>/`.
 - Per-file dialog viewer via `View Log` button.
 - Log summary includes timing, size ratios, memory, and CPU deltas.
+- Job summary also records whether GPU->CPU retry fallback was used.
 
 ## File and Folder Actions
 

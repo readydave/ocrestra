@@ -15,6 +15,11 @@ logs/
 .mypy_cache/
 .ruff_cache/
 
+# Packaging/build artifacts
+build/
+dist/
+*.spec
+
 # IDE/editor
 .idea/
 .vscode/

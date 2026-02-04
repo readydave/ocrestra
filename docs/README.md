@@ -8,6 +8,8 @@ This folder is the full documentation set for OCRestra.
 - `FEATURES.md`: Detailed feature-by-feature behavior and settings.
 - `TROUBLESHOOTING.md`: Common errors and practical fixes.
 - `ARCHITECTURE.md`: How the app is structured internally.
+- `APPIMAGE_BUILD.md`: Linux AppImage build requirements and commands.
+- `GARUDA_LAUNCHER.md`: Install/update a Start Menu launcher on Garuda Linux.
 - `CODE_MAP.md`: Module-by-module developer map of responsibilities.
 - `DEVELOPER.md`: Development workflow, code map, and extension notes.
 - `FUNCTION_INDEX.md`: Auto-generated index of modules, functions, and methods.

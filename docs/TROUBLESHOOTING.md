@@ -70,6 +70,22 @@ If GPU mode is enabled and OCR fails before processing:
 
 Note: OCRestra uses EasyOCR with `--pdf-renderer sandwich` for compatibility.
 
+## One File Works, Others Fail with `InputFileError`
+
+If logs show `InputFileError`, this is usually a source PDF issue (not GPU/CUDA).
+
+Common causes:
+
+- damaged/malformed PDF structure
+- encrypted or permission-locked PDF
+- unsupported edge-case PDF content
+
+Actions:
+
+1. Open the PDF in a viewer and re-save/print-to-PDF, then retry.
+2. Test the same file with GPU disabled to confirm it is input-related.
+3. Keep GPU enabled for the batch; OCRestra will auto-retry CPU once for GPU/plugin-specific failures only.
+
 ## Output PDF Is Much Larger Than Input
 
 Example OCRmyPDF warning:
@@ -130,6 +146,14 @@ Example:
 
 Usually harmless in local/dev runs without an installed desktop entry.  
 If desired, install the desktop entry script from root `README.md` to provide a matching app ID.
+
+## Garuda Start Menu Entry Missing
+
+If OCRestra does not appear in Garuda KDE menu:
+
+1. Run `./scripts/install_linux_desktop_entry.sh` from repo root.
+2. Refresh KDE application cache: `kbuildsycoca6 --noincremental`
+3. Log out/in if needed.
 
 ## If You Need Deep Diagnostics
 

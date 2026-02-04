@@ -10,6 +10,7 @@
 - `ocr_app/__main__.py`: Package entrypoint.
 - `ocr_gui.py`: Script entrypoint wrapper.
 - `setup_env.*`: Cross-platform bootstrap launch scripts.
+- `scripts/install_linux_desktop_entry.sh`: Installs a local Linux desktop entry for app launcher menus.
 - `.github/workflows/ci.yml`: Basic syntax checks.
 
 ## Local Dev Workflow
@@ -20,6 +21,8 @@
    - `python -m py_compile ocr_gui.py ocr_app/__main__.py ocr_app/ui.py ocr_app/job_runner.py ocr_app/themes.py ocr_app/models.py ocr_app/config.py`
 4. Run local security scan helper (optional but recommended):
    - `./scripts/security_scan.sh`
+5. Optional Linux packaging:
+   - `./scripts/build_appimage.sh`
 
 ## Coding Notes
 
@@ -38,6 +41,7 @@
    - `FEATURES.md`
    - `USER_GUIDE.md`
    - `TROUBLESHOOTING.md` (if failure modes change)
+   - `GARUDA_LAUNCHER.md` (if launcher workflow changes)
    - `README.md` highlights if user-facing.
 
 ## Function Reference

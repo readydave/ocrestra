@@ -39,6 +39,7 @@ Direct venv launch:
 - `Advanced` section
   - `OCR mode`: `Smart OCR (Skip text)` or `Force OCR (All pages)`
   - `Enable GPU Acceleration (NVIDIA CUDA)` (requires `ocrmypdf-easyocr`)
+    - If GPU/plugin execution fails, OCRestra retries that file once on CPU automatically.
   - `Optimize for Smaller Output` (balanced compression, may reduce quality)
   - `Priority`: `Normal Priority`, `Low Impact`, `Background`
   - `Parallel files`: presets plus custom value
@@ -111,3 +112,15 @@ OCRestra enforces the following defaults:
 - Max input PDF size: `2 GiB`
 
 If a limit is hit, files are skipped and a warning is shown in the UI/log.
+
+## 12) Garuda Linux Start Menu Launcher
+
+To add OCRestra to the app launcher menu on Garuda KDE:
+
+```bash
+./scripts/install_linux_desktop_entry.sh
+```
+
+Reference guide:
+
+- `docs/GARUDA_LAUNCHER.md`

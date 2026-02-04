@@ -27,6 +27,12 @@ All notable changes to OCRestra should be documented here.
   - output-size optimization toggle (balanced compression)
   - inline hover help for GPU/compression use cases
 - Footer runtime metrics for NVIDIA GPU utilization and VRAM (when `nvidia-smi` is available).
+- Linux AppImage build helper script:
+  - `scripts/build_appimage.sh`
+  - companion docs at `docs/APPIMAGE_BUILD.md`
+  - build isolation guards for Conda-backed environments and TLS cert-var conflicts
+- Garuda Linux desktop launcher guide:
+  - `docs/GARUDA_LAUNCHER.md`
 
 ### Changed
 
@@ -49,6 +55,8 @@ All notable changes to OCRestra should be documented here.
   - supports EasyOCR plugin auto-registration behavior
   - forces `--pdf-renderer sandwich` when EasyOCR GPU mode is enabled
   - supports optional size-optimized output profile flags
+  - auto-retries once on CPU when GPU/plugin-specific failures are detected
+  - classifies `InputFileError` as source-PDF issue for clearer user guidance
 - Splitter UX tuning:
   - larger draggable splitter handles
   - non-collapsible pane behavior

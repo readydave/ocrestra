@@ -62,6 +62,19 @@ def _configure_logging(log_file: Path, queue_obj: Any, task_id: str) -> None:
     logging.getLogger("ocrmypdf").setLevel(logging.INFO)
 
 
+class OCRCommandError(RuntimeError):
+    def __init__(self, exit_code: int | None, details: str) -> None:
+        self.exit_code = exit_code
+        self.details = details.strip()
+        if self.details and self.exit_code is not None:
+            message = f"ocrmypdf failed with exit code {self.exit_code}: {self.details}"
+        elif self.exit_code is not None:
+            message = f"ocrmypdf failed with exit code {self.exit_code}."
+        else:
+            message = self.details or "ocrmypdf command failed."
+        super().__init__(message)
+
+
 def _build_ocr_command(
     ocrmypdf_bin: str,
     input_pdf: Path,
@@ -119,6 +132,89 @@ def _is_easyocr_duplicate_registration_error(message: str) -> bool:
     )
 
 
+def _run_ocr_command(cmd: list[str]) -> None:
+    try:
+        subprocess.run(
+            cmd,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except FileNotFoundError as exc:
+        raise OCRCommandError(None, "ocrmypdf executable is not available in PATH.") from exc
+    except subprocess.CalledProcessError as exc:
+        details = (exc.stderr or exc.stdout or "").strip()
+        raise OCRCommandError(exc.returncode, details) from exc
+
+
+def _is_gpu_related_failure(details: str) -> bool:
+    lowered = details.lower()
+    markers = (
+        "ocrmypdf_easyocr",
+        "easyocr",
+        "cuda",
+        "torch.cuda",
+        "gpu",
+        "plugin already registered under a different name",
+        "no module named 'ocrmypdf_easyocr'",
+    )
+    return any(marker in lowered for marker in markers)
+
+
+def _is_input_file_error(details: str) -> bool:
+    lowered = details.lower()
+    return "inputfileerror" in lowered or "input file error" in lowered
+
+
+def _format_ocr_error(error: OCRCommandError) -> str:
+    if _is_input_file_error(error.details):
+        return (
+            "InputFileError: OCRmyPDF could not process this PDF "
+            "(file may be damaged, encrypted, or malformed)."
+        )
+    return str(error)
+
+
+def _run_with_gpu_retry(
+    ocrmypdf_bin: str,
+    input_pdf: Path,
+    output_pdf: Path,
+    force_ocr: bool,
+    use_gpu: bool,
+    optimize_for_size: bool,
+    logger: logging.Logger,
+) -> bool:
+    try:
+        _run_ocr(
+            ocrmypdf_bin,
+            input_pdf,
+            output_pdf,
+            force_ocr,
+            use_gpu,
+            optimize_for_size,
+        )
+        return False
+    except OCRCommandError as exc:
+        if use_gpu and _is_gpu_related_failure(exc.details):
+            logger.warning("GPU backend failed. Retrying this file once with CPU backend.")
+            try:
+                _run_ocr(
+                    ocrmypdf_bin,
+                    input_pdf,
+                    output_pdf,
+                    force_ocr,
+                    False,
+                    optimize_for_size,
+                )
+                logger.info("CPU fallback after GPU failure succeeded.")
+                return True
+            except OCRCommandError:
+                logger.error("CPU fallback after GPU failure also failed.")
+                raise
+        raise
+
+
 def _run_ocr(
     ocrmypdf_bin: str,
     input_pdf: Path,
@@ -140,17 +236,9 @@ def _run_ocr(
         include_easyocr_plugin=include_easyocr_plugin,
     )
     try:
-        subprocess.run(
-            cmd,
-            check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-    except FileNotFoundError as exc:
-        raise RuntimeError("ocrmypdf executable is not available in PATH.") from exc
-    except subprocess.CalledProcessError as exc:
-        details = (exc.stderr or exc.stdout or "").strip()
+        _run_ocr_command(cmd)
+    except OCRCommandError as exc:
+        details = exc.details
         if (
             use_gpu
             and include_easyocr_plugin
@@ -165,17 +253,9 @@ def _run_ocr(
                 optimize_for_size=optimize_for_size,
                 include_easyocr_plugin=False,
             )
-            subprocess.run(
-                retry_cmd,
-                check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
+            _run_ocr_command(retry_cmd)
             return
-        if details:
-            raise RuntimeError(f"ocrmypdf failed with exit code {exc.returncode}: {details}") from exc
-        raise RuntimeError(f"ocrmypdf failed with exit code {exc.returncode}.") from exc
+        raise
 
 
 def _should_fallback_to_tmp(pdf_path: Path, exc: Exception) -> bool:
@@ -344,6 +424,7 @@ def run_ocr_job(config: dict[str, Any], queue_obj: Any) -> None:
 
     success = False
     error_message = ""
+    used_cpu_fallback = False
     ocrmypdf_bin = shutil.which("ocrmypdf")
     try:
         if not ocrmypdf_bin:
@@ -351,18 +432,19 @@ def run_ocr_job(config: dict[str, Any], queue_obj: Any) -> None:
             logger.error("%s", error_message)
             queue_obj.put({"type": "status", "task_id": task_id, "status": "Failed"})
         else:
+            output_pdf.parent.mkdir(parents=True, exist_ok=True)
             try:
-                output_pdf.parent.mkdir(parents=True, exist_ok=True)
-                _run_ocr(
+                used_cpu_fallback = _run_with_gpu_retry(
                     ocrmypdf_bin,
                     input_pdf,
                     output_pdf,
                     force_ocr,
                     use_gpu,
                     optimize_for_size,
+                    logger,
                 )
                 success = True
-            except Exception as exc:  # noqa: BLE001
+            except OCRCommandError as exc:
                 if _should_fallback_to_tmp(input_pdf, exc):
                     try:
                         used_fallback = True
@@ -371,29 +453,35 @@ def run_ocr_job(config: dict[str, Any], queue_obj: Any) -> None:
                         temp_input = temp_dir / input_pdf.name
                         temp_output = temp_dir / f"{input_pdf.stem}_ocr.pdf"
                         shutil.copy2(input_pdf, temp_input)
-                        _run_ocr(
+                        used_cpu_fallback = _run_with_gpu_retry(
                             ocrmypdf_bin,
                             temp_input,
                             temp_output,
                             force_ocr,
                             use_gpu,
                             optimize_for_size,
+                            logger,
                         )
                         shutil.move(str(temp_output), str(output_pdf))
                         success = True
+                    except OCRCommandError as fallback_exc:
+                        error_message = _format_ocr_error(fallback_exc)
+                        if _is_input_file_error(fallback_exc.details):
+                            logger.error("Input file appears invalid/unreadable for OCRmyPDF: %s", input_pdf)
+                        else:
+                            logger.exception("Fallback OCR failed for %s: %s", input_pdf, fallback_exc)
                     except Exception as fallback_exc:  # noqa: BLE001
                         error_message = f"{type(fallback_exc).__name__}: {fallback_exc}"
-                        if use_gpu:
-                            error_message += " GPU plugin failed; disable GPU Acceleration and retry on CPU."
                         logger.exception("Fallback OCR failed for %s: %s", input_pdf, fallback_exc)
                 else:
-                    error_message = f"{type(exc).__name__}: {exc}"
-                    if use_gpu:
-                        error_message += " GPU plugin failed; disable GPU Acceleration and retry on CPU."
-                        logger.error(
-                            "GPU plugin run failed. CUDA/plugin may be missing; retry with GPU disabled."
-                        )
-                    logger.exception("OCR failed for %s: %s", input_pdf, exc)
+                    error_message = _format_ocr_error(exc)
+                    if _is_input_file_error(exc.details):
+                        logger.error("Input file appears invalid/unreadable for OCRmyPDF: %s", input_pdf)
+                    else:
+                        logger.exception("OCR failed for %s: %s", input_pdf, exc)
+            except Exception as exc:  # noqa: BLE001
+                error_message = f"{type(exc).__name__}: {exc}"
+                logger.exception("OCR failed for %s: %s", input_pdf, exc)
     finally:
         duration = time.time() - start
         end_stamp = dt.datetime.now().isoformat(timespec="seconds")
@@ -414,6 +502,8 @@ def run_ocr_job(config: dict[str, Any], queue_obj: Any) -> None:
         logger.info("Process CPU system delta: %.4f", end_cpu.system - start_cpu.system)
         if used_fallback:
             logger.info("Used /tmp fallback: yes")
+        if used_cpu_fallback:
+            logger.info("Used CPU retry after GPU failure: yes")
 
         queue_obj.put(
             {
@@ -423,6 +513,7 @@ def run_ocr_job(config: dict[str, Any], queue_obj: Any) -> None:
                 "error": error_message,
                 "output_pdf": str(output_pdf),
                 "used_fallback": used_fallback,
+                "used_cpu_fallback": used_cpu_fallback,
                 "duration_seconds": duration,
                 "input_size": input_size,
                 "output_size": output_size,

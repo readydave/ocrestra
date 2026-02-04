@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -515,6 +516,76 @@ class MainWindow(QMainWindow):
         self.parallel_hint.setObjectName("ParallelHint")
         self.parallel_hint.setWordWrap(True)
         config_layout.addWidget(self.parallel_hint)
+
+        stats_visible = self.settings.value("show_stats", True, type=bool)
+        self.stats_frame = QFrame()
+        self.stats_frame.setObjectName("StatsFrame")
+        stats_layout = QVBoxLayout(self.stats_frame)
+        stats_layout.setContentsMargins(10, 10, 10, 10)
+        stats_layout.setSpacing(8)
+
+        stats_title = QLabel("Runtime Stats")
+        stats_title.setObjectName("MetricsTitle")
+        stats_layout.addWidget(stats_title)
+
+        metrics_grid = QGridLayout()
+        metrics_grid.setHorizontalSpacing(12)
+        metrics_grid.setVerticalSpacing(6)
+
+        def _metric_key(text: str) -> QLabel:
+            label = QLabel(text)
+            label.setObjectName("MetricKey")
+            return label
+
+        self.metrics_app_cpu = QLabel("0.0%")
+        self.metrics_app_ram = QLabel("0 B")
+        self.metrics_sys_cpu = QLabel("0.0%")
+        self.metrics_sys_ram = QLabel("0.0%")
+        self.metrics_gpu = QLabel("N/A")
+        self.metrics_gpu_vram = QLabel("N/A")
+        self.metrics_workers = QLabel("0 active / 0 queued")
+        self.metrics_cpu_health = QLabel("Green")
+        self.metrics_ram_health = QLabel("Green")
+
+        metric_values = (
+            self.metrics_app_cpu,
+            self.metrics_app_ram,
+            self.metrics_sys_cpu,
+            self.metrics_sys_ram,
+            self.metrics_gpu,
+            self.metrics_gpu_vram,
+            self.metrics_workers,
+            self.metrics_cpu_health,
+            self.metrics_ram_health,
+        )
+        for label in metric_values:
+            label.setObjectName("MetricValue")
+
+        metrics_grid.addWidget(_metric_key("App CPU"), 0, 0)
+        metrics_grid.addWidget(self.metrics_app_cpu, 0, 1)
+        metrics_grid.addWidget(_metric_key("App RAM"), 0, 2)
+        metrics_grid.addWidget(self.metrics_app_ram, 0, 3)
+
+        metrics_grid.addWidget(_metric_key("System CPU"), 1, 0)
+        metrics_grid.addWidget(self.metrics_sys_cpu, 1, 1)
+        metrics_grid.addWidget(_metric_key("System RAM"), 1, 2)
+        metrics_grid.addWidget(self.metrics_sys_ram, 1, 3)
+
+        metrics_grid.addWidget(_metric_key("GPU"), 2, 0)
+        metrics_grid.addWidget(self.metrics_gpu, 2, 1)
+        metrics_grid.addWidget(_metric_key("VRAM"), 2, 2)
+        metrics_grid.addWidget(self.metrics_gpu_vram, 2, 3)
+
+        metrics_grid.addWidget(_metric_key("Workers"), 3, 0)
+        metrics_grid.addWidget(self.metrics_workers, 3, 1, 1, 3)
+
+        metrics_grid.addWidget(_metric_key("CPU Health"), 4, 0)
+        metrics_grid.addWidget(self.metrics_cpu_health, 4, 1)
+        metrics_grid.addWidget(_metric_key("RAM Health"), 4, 2)
+        metrics_grid.addWidget(self.metrics_ram_health, 4, 3)
+
+        stats_layout.addLayout(metrics_grid)
+        config_layout.addWidget(self.stats_frame)
         config_layout.addStretch()
 
         config_scroll.setWidget(config_panel)
@@ -568,40 +639,12 @@ class MainWindow(QMainWindow):
         progress_row.addWidget(self.batch_progress, 1)
         queue_layout.addLayout(progress_row)
 
-        stats_row = QHBoxLayout()
-        stats_row.setSpacing(10)
         self.show_stats_toggle = QCheckBox("Show Stats")
-        stats_visible = self.settings.value("show_stats", True, type=bool)
         self.show_stats_toggle.setChecked(stats_visible)
-
-        self.stats_frame = QFrame()
-        self.stats_frame.setObjectName("StatsFrame")
-        metrics_row = QHBoxLayout(self.stats_frame)
-        metrics_row.setContentsMargins(10, 8, 10, 8)
-        metrics_row.setSpacing(12)
-        self.metrics_app_cpu = QLabel("App CPU: 0.0%")
-        self.metrics_app_ram = QLabel("App RAM: 0 B")
-        self.metrics_sys_cpu = QLabel("System CPU: 0.0%")
-        self.metrics_sys_ram = QLabel("System RAM: 0.0%")
-        self.metrics_gpu = QLabel("GPU: N/A")
-        self.metrics_gpu_vram = QLabel("VRAM: N/A")
-        self.metrics_workers = QLabel("Active: 0 | Queued: 0")
-        self.metrics_cpu_health = QLabel("CPU: Green")
-        self.metrics_ram_health = QLabel("RAM: Green")
-        metrics_row.addWidget(self.metrics_app_cpu)
-        metrics_row.addWidget(self.metrics_app_ram)
-        metrics_row.addWidget(self.metrics_sys_cpu)
-        metrics_row.addWidget(self.metrics_sys_ram)
-        metrics_row.addWidget(self.metrics_gpu)
-        metrics_row.addWidget(self.metrics_gpu_vram)
-        metrics_row.addWidget(self.metrics_cpu_health)
-        metrics_row.addWidget(self.metrics_ram_health)
-        metrics_row.addStretch()
-        metrics_row.addWidget(self.metrics_workers)
-        stats_row.addWidget(self.stats_frame, 1)
-        stats_row.addStretch()
-        stats_row.addWidget(self.show_stats_toggle)
-        queue_layout.addLayout(stats_row)
+        toggle_row = QHBoxLayout()
+        toggle_row.addStretch()
+        toggle_row.addWidget(self.show_stats_toggle)
+        queue_layout.addLayout(toggle_row)
 
         self.queue_log_splitter.addWidget(queue_panel)
 
@@ -2176,30 +2219,28 @@ class MainWindow(QMainWindow):
             elif task.status == "Queued":
                 queued += 1
 
-        self.metrics_app_cpu.setText(f"App CPU: {app_cpu:.1f}%")
-        self.metrics_app_ram.setText(f"App RAM: {_format_bytes(app_ram)}")
-        self.metrics_sys_cpu.setText(f"System CPU: {sys_cpu:.1f}%")
-        self.metrics_sys_ram.setText(f"System RAM: {sys_ram:.1f}%")
+        self.metrics_app_cpu.setText(f"{app_cpu:.1f}%")
+        self.metrics_app_ram.setText(_format_bytes(app_ram))
+        self.metrics_sys_cpu.setText(f"{sys_cpu:.1f}%")
+        self.metrics_sys_ram.setText(f"{sys_ram:.1f}%")
         gpu_stats = self._query_nvidia_gpu_metrics()
         if gpu_stats is None:
-            self.metrics_gpu.setText("GPU: N/A")
-            self.metrics_gpu_vram.setText("VRAM: N/A")
+            self.metrics_gpu.setText("N/A")
+            self.metrics_gpu_vram.setText("N/A")
         else:
             gpu_util, used_mib, total_mib, gpu_count = gpu_stats
             used_bytes = used_mib * 1024 * 1024
             total_bytes = total_mib * 1024 * 1024
             suffix = f" ({gpu_count} GPUs)" if gpu_count > 1 else ""
-            self.metrics_gpu.setText(f"GPU: {gpu_util:.0f}%{suffix}")
-            self.metrics_gpu_vram.setText(
-                f"VRAM: {_format_bytes(used_bytes)} / {_format_bytes(total_bytes)}"
-            )
+            self.metrics_gpu.setText(f"{gpu_util:.0f}%{suffix}")
+            self.metrics_gpu_vram.setText(f"{_format_bytes(used_bytes)} / {_format_bytes(total_bytes)}")
         cpu_state, cpu_color = self._resource_health(sys_cpu, 60.0, 85.0)
         ram_state, ram_color = self._resource_health(sys_ram, 70.0, 88.0)
-        self.metrics_cpu_health.setText(f"CPU: {cpu_state}")
+        self.metrics_cpu_health.setText(cpu_state)
         self.metrics_cpu_health.setStyleSheet(f"color: {cpu_color}; font-weight: 700;")
-        self.metrics_ram_health.setText(f"RAM: {ram_state}")
+        self.metrics_ram_health.setText(ram_state)
         self.metrics_ram_health.setStyleSheet(f"color: {ram_color}; font-weight: 700;")
-        self.metrics_workers.setText(f"Active: {running} | Queued: {queued}")
+        self.metrics_workers.setText(f"{running} active / {queued} queued")
 
     def _append_metrics_to_log(self, task: TaskItem) -> None:
         if not task.log_file:

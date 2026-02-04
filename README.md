@@ -14,6 +14,7 @@ Batch OCR desktop app for Linux/Windows with drag-drop queueing, process-level c
 - Function index: `docs/FUNCTION_INDEX.md`
 - Function descriptions: `docs/FUNCTION_DESCRIPTIONS.md`
 - Changelog: `docs/CHANGELOG.md`
+- Garuda launcher setup: `docs/GARUDA_LAUNCHER.md`
 
 ## Highlights
 
@@ -26,6 +27,7 @@ Batch OCR desktop app for Linux/Windows with drag-drop queueing, process-level c
   - `Force OCR (All pages)`
 - Optional GPU OCR backend:
   - `Enable GPU Acceleration (NVIDIA CUDA)` via `ocrmypdf-easyocr`
+  - automatic single-file CPU retry when GPU/plugin-specific failures occur
 - Optional output-size profile:
   - `Optimize for Smaller Output` (balanced compression)
 - Parallel presets (`Auto`, `Low`, `Balanced`, `High`, `Turbo`, `Max`, `Custom`)
@@ -186,6 +188,25 @@ dolphin {path}
 
 This generates `~/.local/share/applications/ocrestra.desktop` with your local install path.
 If `assets/ocrestra.png` exists, it is used as the launcher icon.
+For Garuda Linux specifics (menu refresh and troubleshooting), see `docs/GARUDA_LAUNCHER.md`.
+
+## Build AppImage (Linux x86_64)
+
+Build a portable AppImage from source:
+
+```bash
+./scripts/build_appimage.sh
+```
+
+Output:
+
+- `dist/OCRestra-x86_64.AppImage`
+
+Build details and options:
+
+- `docs/APPIMAGE_BUILD.md`
+
+Note: target systems still need host OCR tools (`tesseract`, `gs`, `qpdf`), and GPU mode requires NVIDIA runtime + `nvidia-smi`.
 
 ## App Icon
 

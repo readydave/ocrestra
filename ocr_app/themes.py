@@ -72,6 +72,17 @@ QToolButton#SectionToggle {{
 QLabel#ParallelHint {{
     color: {muted};
 }}
+QLabel#MetricsTitle {{
+    font-size: 14px;
+    font-weight: 700;
+}}
+QLabel#MetricKey {{
+    color: {muted};
+    font-size: 12px;
+}}
+QLabel#MetricValue {{
+    font-weight: 600;
+}}
 QPushButton {{
     background: {button_bg};
     border: 1px solid {button_border};
