@@ -518,6 +518,14 @@ class MainWindow(QMainWindow):
         config_layout.addWidget(self.parallel_hint)
 
         stats_visible = self.settings.value("show_stats", True, type=bool)
+        self.show_stats_toggle = QCheckBox("Show Stats")
+        self.show_stats_toggle.setChecked(stats_visible)
+        stats_toggle_row = QHBoxLayout()
+        stats_toggle_row.setContentsMargins(0, 0, 0, 0)
+        stats_toggle_row.addWidget(self.show_stats_toggle)
+        stats_toggle_row.addStretch()
+        config_layout.addLayout(stats_toggle_row)
+
         self.stats_frame = QFrame()
         self.stats_frame.setObjectName("StatsFrame")
         stats_layout = QVBoxLayout(self.stats_frame)
@@ -638,13 +646,6 @@ class MainWindow(QMainWindow):
         progress_row.addWidget(self.batch_label)
         progress_row.addWidget(self.batch_progress, 1)
         queue_layout.addLayout(progress_row)
-
-        self.show_stats_toggle = QCheckBox("Show Stats")
-        self.show_stats_toggle.setChecked(stats_visible)
-        toggle_row = QHBoxLayout()
-        toggle_row.addStretch()
-        toggle_row.addWidget(self.show_stats_toggle)
-        queue_layout.addLayout(toggle_row)
 
         self.queue_log_splitter.addWidget(queue_panel)
 
