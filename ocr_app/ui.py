@@ -15,13 +15,15 @@ import uuid
 from pathlib import Path
 
 import psutil
-from PySide6.QtCore import QSettings, QStandardPaths, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QAction, QActionGroup, QDesktopServices, QDragEnterEvent, QDropEvent, QIcon
+from PySide6.QtCore import QEvent, QSettings, QStandardPaths, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QAction, QActionGroup, QDesktopServices, QDragEnterEvent, QDropEvent, QIcon, QPainter, QPalette
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QDialog,
     QFileDialog,
+    QFormLayout,
     QFrame,
     QHBoxLayout,
     QHeaderView,
@@ -33,9 +35,12 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QScrollArea,
+    QSplitter,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -104,6 +109,31 @@ def _resolve_app_icon_path() -> Path | None:
     return None
 
 
+def _set_windows_app_user_model_id() -> None:
+    if not sys.platform.startswith("win"):
+        return
+    try:
+        import ctypes
+
+        app_id = f"{ORG_NAME}.{APP_NAME}".replace(" ", "")
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+    except Exception:
+        return
+
+
+def _linux_desktop_entry_available(app_id: str) -> bool:
+    if not sys.platform.startswith("linux"):
+        return False
+    candidates = []
+    for base in (
+        Path.home() / ".local" / "share" / "applications",
+        Path("/usr/local/share/applications"),
+        Path("/usr/share/applications"),
+    ):
+        candidates.append(base / f"{app_id}.desktop")
+    return any(path.exists() and path.is_file() for path in candidates)
+
+
 def _format_bytes(size: int) -> str:
     if size <= 0:
         return "0 B"
@@ -170,6 +200,100 @@ class DropZone(QFrame):
         self.update()
 
 
+class ArrowComboBox(QComboBox):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        popup_view = self.view()
+        if popup_view is not None:
+            popup_view.setObjectName("ComboPopupView")
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.TextAntialiasing, True)
+        color = self.palette().color(QPalette.ButtonText)
+        if not self.isEnabled():
+            color = self.palette().color(QPalette.Disabled, QPalette.ButtonText)
+        painter.setPen(color)
+        arrow_rect = self.rect().adjusted(self.width() - 24, 0, -6, 0)
+        painter.drawText(arrow_rect, Qt.AlignCenter, "▼")
+
+
+class CollapsibleSection(QFrame):
+    def __init__(self, title: str, expanded: bool = False) -> None:
+        super().__init__()
+        self.setObjectName("CollapsibleSection")
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(8)
+
+        self.toggle = QToolButton(self)
+        self.toggle.setObjectName("SectionToggle")
+        self.toggle.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.toggle.setCheckable(True)
+        self.toggle.setChecked(expanded)
+        self.toggle.setText(title)
+        self.toggle.setArrowType(Qt.DownArrow if expanded else Qt.RightArrow)
+        self.toggle.toggled.connect(self._on_toggled)
+        root.addWidget(self.toggle)
+
+        self.content = QWidget(self)
+        self.content.setVisible(expanded)
+        self.content_layout = QVBoxLayout(self.content)
+        self.content_layout.setContentsMargins(12, 0, 0, 0)
+        self.content_layout.setSpacing(10)
+        root.addWidget(self.content)
+
+    def _on_toggled(self, checked: bool) -> None:
+        self.toggle.setArrowType(Qt.DownArrow if checked else Qt.RightArrow)
+        self.content.setVisible(checked)
+
+
+class QueueEmptyStateOverlay(QWidget):
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.setObjectName("QueueEmptyState")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.addStretch()
+
+        self.card = QFrame(self)
+        self.card.setObjectName("EmptyStateCard")
+        card_layout = QVBoxLayout(self.card)
+        card_layout.setContentsMargins(24, 24, 24, 24)
+        card_layout.setSpacing(8)
+
+        self.title = QLabel("Your queue is empty", self.card)
+        self.title.setObjectName("EmptyStateTitle")
+        self.title.setAlignment(Qt.AlignCenter)
+        self.title.setWordWrap(True)
+        self.body = QLabel("Add PDF files or drag folders into the drop zone to begin OCR.", self.card)
+        self.body.setObjectName("EmptyStateBody")
+        self.body.setAlignment(Qt.AlignCenter)
+        self.body.setWordWrap(True)
+
+        card_layout.addWidget(self.title)
+        card_layout.addWidget(self.body)
+
+        layout.addWidget(self.card, alignment=Qt.AlignCenter)
+        layout.addStretch()
+        self._update_for_size()
+
+    @staticmethod
+    def _clamp(value: float, low: float, high: float) -> float:
+        return max(low, min(high, value))
+
+    def _update_for_size(self) -> None:
+        available_width = max(260, self.width() - 56)
+        card_width = int(self._clamp(available_width * 0.84, 320, 820))
+        self.card.setFixedWidth(card_width)
+        self.body.setMaximumWidth(card_width - 52)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._update_for_size()
+
+
 class MainWindow(QMainWindow):
     def __init__(self, app: QApplication) -> None:
         super().__init__()
@@ -180,6 +304,7 @@ class MainWindow(QMainWindow):
         self.last_dir = self.settings.value("last_dir", str(Path.home()), type=str)
         self.theme = self.settings.value("theme", "system", type=str)
         self.path_display_mode = self.settings.value("path_display_mode", "elided", type=str)
+        self.folder_scan_recursive = self.settings.value("folder_scan_recursive", True, type=bool)
         self.file_manager_choice = self.settings.value("file_manager_choice", "auto", type=str)
         self.file_manager_custom_cmd = self.settings.value("file_manager_custom_cmd", "", type=str).strip()
         self.custom_manager_warned_this_session = False
@@ -244,8 +369,11 @@ class MainWindow(QMainWindow):
         root = QWidget()
         self.setCentralWidget(root)
         layout = QVBoxLayout(root)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(12)
 
-        header = QHBoxLayout()
+        header_row = QHBoxLayout()
+        header_row.setSpacing(8)
         title_wrap = QVBoxLayout()
         title = QLabel("OCRestra")
         title.setObjectName("Title")
@@ -253,41 +381,74 @@ class MainWindow(QMainWindow):
         subtitle.setObjectName("Subtitle")
         title_wrap.addWidget(title)
         title_wrap.addWidget(subtitle)
-        header.addLayout(title_wrap)
-        header.addStretch()
-        self.start_button = QPushButton("Start OCR")
-        self.start_button.setObjectName("StartButton")
-        self.start_button.setStyleSheet(
-            "QPushButton { background: #1f8b4c; color: white; border-radius: 8px; padding: 8px 14px; font-weight: 700; }"
-            "QPushButton:hover { background: #2aa65c; }"
-            "QPushButton:disabled { background: #3b5b48; color: #d3ddd7; }"
-        )
-        self.exit_button = QPushButton("Exit")
-        self.exit_button.setObjectName("DangerButton")
-        self.exit_button.setStyleSheet(
-            "QPushButton { background: #b4232f; color: white; border-radius: 8px; padding: 8px 14px; }"
-            "QPushButton:hover { background: #cf3442; }"
-        )
-        header.addWidget(self.start_button)
-        self.exit_button.clicked.connect(self.close)
-        header.addWidget(self.exit_button)
-        layout.addLayout(header)
+        header_row.addLayout(title_wrap)
+        header_row.addStretch()
 
-        self.drop_zone = DropZone()
-        self.drop_zone.setStyleSheet(
-            "QFrame#DropZone { border: 2px dashed #cf3347; border-radius: 12px; }"
-            "QFrame#DropZone[hover=\"true\"] { border: 2px solid #3ad16b; }"
-        )
-        self.drop_zone.paths_dropped.connect(self.add_paths)
-        layout.addWidget(self.drop_zone)
-
-        controls = QHBoxLayout()
-        self.add_pdf_button = QPushButton("Add PDFs")
-        self.add_folder_button = QPushButton("Add Folder")
         self.cancel_selected_button = QPushButton("Cancel Selected")
         self.cancel_all_button = QPushButton("Cancel All")
         self.clear_button = QPushButton("Clear List")
-        self.parallel_mode = QComboBox()
+        self.start_button = QPushButton("Start OCR")
+        self.start_button.setObjectName("StartButton")
+        self.start_button.setDefault(True)
+        self.start_button.setAutoDefault(True)
+        self.exit_button = QPushButton("Exit")
+        self.exit_button.setObjectName("DangerButton")
+        for button in (
+            self.cancel_selected_button,
+            self.cancel_all_button,
+            self.clear_button,
+            self.start_button,
+            self.exit_button,
+        ):
+            button.setMinimumWidth(118)
+
+        header_row.addWidget(self.cancel_selected_button)
+        header_row.addWidget(self.cancel_all_button)
+        header_row.addWidget(self.clear_button)
+        header_row.addSpacing(10)
+        header_row.addWidget(self.start_button)
+        header_row.addWidget(self.exit_button)
+        layout.addLayout(header_row)
+
+        self.main_splitter = QSplitter(Qt.Horizontal, root)
+        self.main_splitter.setObjectName("MainSplitter")
+        layout.addWidget(self.main_splitter, 1)
+
+        config_scroll = QScrollArea(self.main_splitter)
+        config_scroll.setWidgetResizable(True)
+        config_scroll.setFrameShape(QFrame.NoFrame)
+        config_scroll.setObjectName("ConfigScrollArea")
+
+        config_panel = QWidget(config_scroll)
+        config_layout = QVBoxLayout(config_panel)
+        config_layout.setContentsMargins(0, 0, 0, 0)
+        config_layout.setSpacing(12)
+
+        self.drop_zone = DropZone()
+        self.drop_zone.paths_dropped.connect(self.add_paths)
+        config_layout.addWidget(self.drop_zone)
+
+        source_actions = QHBoxLayout()
+        self.add_pdf_button = QPushButton("Add PDFs")
+        self.add_folder_button = QPushButton("Add Folder")
+        source_actions.addWidget(self.add_pdf_button)
+        source_actions.addWidget(self.add_folder_button)
+        source_actions.addStretch()
+        config_layout.addLayout(source_actions)
+
+        self.ocr_mode = ArrowComboBox()
+        self.ocr_mode.addItem("Smart OCR (Skip text)", "smart")
+        self.ocr_mode.addItem("Force OCR (All pages)", "force")
+        saved_ocr_mode = self.settings.value("ocr_mode", "smart", type=str)
+        self._set_combo_data(self.ocr_mode, saved_ocr_mode)
+
+        self.path_display_combo = ArrowComboBox()
+        self.path_display_combo.addItem("Full path", "full")
+        self.path_display_combo.addItem("Elided path", "elided")
+        self.path_display_combo.addItem("Filename only", "name")
+        self._set_combo_data(self.path_display_combo, self.path_display_mode)
+
+        self.parallel_mode = ArrowComboBox()
         self.parallel_mode.addItem("Auto (Recommended)", "auto")
         self.parallel_mode.addItem("Low (4)", "4")
         self.parallel_mode.addItem("Balanced (8)", "8")
@@ -295,46 +456,59 @@ class MainWindow(QMainWindow):
         self.parallel_mode.addItem("Turbo (24)", "24")
         self.parallel_mode.addItem("Max (32)", "32")
         self.parallel_mode.addItem("Custom", "custom")
-        self.ocr_mode = QComboBox()
-        self.ocr_mode.addItem("Smart OCR (Skip text)", "smart")
-        self.ocr_mode.addItem("Force OCR (All pages)", "force")
-        saved_ocr_mode = self.settings.value("ocr_mode", "smart", type=str)
-        self._set_combo_data(self.ocr_mode, saved_ocr_mode)
-        self.priority_combo = QComboBox()
+        saved_mode = self.settings.value("parallel_mode", "auto", type=str)
+        self._set_combo_data(self.parallel_mode, saved_mode)
+
+        self.custom_workers = QSpinBox()
+        self.custom_workers.setRange(1, MAX_WORKERS)
+        self.custom_workers.setValue(self.settings.value("custom_workers", DEFAULT_WORKERS, type=int))
+
+        self.priority_combo = ArrowComboBox()
         self.priority_combo.addItem("Normal Priority", "normal")
         self.priority_combo.addItem("Low Impact", "low")
         self.priority_combo.addItem("Background (Low + I/O)", "background")
         self._set_combo_data(self.priority_combo, self.priority_mode)
-        self.path_display_combo = QComboBox()
-        self.path_display_combo.addItem("Full path", "full")
-        self.path_display_combo.addItem("Elided path", "elided")
-        self.path_display_combo.addItem("Filename only", "name")
-        self._set_combo_data(self.path_display_combo, self.path_display_mode)
-        self.custom_workers = QSpinBox()
-        self.custom_workers.setRange(1, MAX_WORKERS)
-        self.custom_workers.setValue(self.settings.value("custom_workers", DEFAULT_WORKERS, type=int))
-        saved_mode = self.settings.value("parallel_mode", "auto", type=str)
-        self._set_combo_data(self.parallel_mode, saved_mode)
 
-        controls.addWidget(self.add_pdf_button)
-        controls.addWidget(self.add_folder_button)
-        controls.addWidget(self.cancel_selected_button)
-        controls.addWidget(self.cancel_all_button)
-        controls.addWidget(self.clear_button)
-        controls.addStretch()
-        controls.addWidget(QLabel("OCR mode"))
-        controls.addWidget(self.ocr_mode)
-        controls.addWidget(QLabel("Priority"))
-        controls.addWidget(self.priority_combo)
-        controls.addWidget(QLabel("Parallel files"))
-        controls.addWidget(self.parallel_mode)
-        controls.addWidget(self.custom_workers)
-        controls.addWidget(QLabel("Path"))
-        controls.addWidget(self.path_display_combo)
-        layout.addLayout(controls)
+        self.advanced_section = CollapsibleSection("Advanced", expanded=False)
+        advanced_form = QFormLayout()
+        advanced_form.setContentsMargins(0, 0, 0, 0)
+        advanced_form.setSpacing(10)
+        advanced_form.addRow("OCR mode", self.ocr_mode)
+        advanced_form.addRow("Path display", self.path_display_combo)
+        advanced_form.addRow("Priority", self.priority_combo)
+
+        parallel_wrap = QWidget()
+        parallel_layout = QHBoxLayout(parallel_wrap)
+        parallel_layout.setContentsMargins(0, 0, 0, 0)
+        parallel_layout.setSpacing(8)
+        parallel_layout.addWidget(self.parallel_mode, 1)
+        parallel_layout.addWidget(self.custom_workers)
+        advanced_form.addRow("Parallel files", parallel_wrap)
+        self.advanced_section.content_layout.addLayout(advanced_form)
+        config_layout.addWidget(self.advanced_section)
 
         self.parallel_hint = QLabel("")
-        layout.addWidget(self.parallel_hint)
+        self.parallel_hint.setObjectName("ParallelHint")
+        self.parallel_hint.setWordWrap(True)
+        config_layout.addWidget(self.parallel_hint)
+        config_layout.addStretch()
+
+        config_scroll.setWidget(config_panel)
+        self.main_splitter.addWidget(config_scroll)
+
+        right_pane = QWidget()
+        right_layout = QVBoxLayout(right_pane)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(10)
+
+        self.queue_log_splitter = QSplitter(Qt.Vertical, right_pane)
+        self.queue_log_splitter.setObjectName("QueueLogSplitter")
+        right_layout.addWidget(self.queue_log_splitter, 1)
+
+        queue_panel = QWidget()
+        queue_layout = QVBoxLayout(queue_panel)
+        queue_layout.setContentsMargins(0, 0, 0, 0)
+        queue_layout.setSpacing(10)
 
         self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels(["Input PDF", "Status", "Progress", "Result", "Log", "Action"])
@@ -347,13 +521,18 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(TABLE_COL_ACTION, QHeaderView.Fixed)
         header.setStretchLastSection(False)
         self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(38)
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setWordWrap(False)
         self.table.setTextElideMode(Qt.ElideMiddle)
         self._auto_adjust_table_columns()
-        layout.addWidget(self.table, 2)
+        queue_layout.addWidget(self.table, 1)
+
+        self.empty_state_overlay = QueueEmptyStateOverlay(self.table.viewport())
+        self.table_viewport = self.table.viewport()
+        self.table_viewport.installEventFilter(self)
 
         progress_row = QHBoxLayout()
         self.batch_label = QLabel("Batch progress: 0/0")
@@ -362,9 +541,20 @@ class MainWindow(QMainWindow):
         self.batch_progress.setValue(0)
         progress_row.addWidget(self.batch_label)
         progress_row.addWidget(self.batch_progress, 1)
-        layout.addLayout(progress_row)
+        queue_layout.addLayout(progress_row)
 
-        metrics_row = QHBoxLayout()
+        stats_row = QHBoxLayout()
+        stats_row.setSpacing(10)
+        self.show_stats_toggle = QCheckBox("Show Stats")
+        stats_visible = self.settings.value("show_stats", True, type=bool)
+        self.show_stats_toggle.setChecked(stats_visible)
+        stats_row.addWidget(self.show_stats_toggle)
+
+        self.stats_frame = QFrame()
+        self.stats_frame.setObjectName("StatsFrame")
+        metrics_row = QHBoxLayout(self.stats_frame)
+        metrics_row.setContentsMargins(10, 8, 10, 8)
+        metrics_row.setSpacing(12)
         self.metrics_app_cpu = QLabel("App CPU: 0.0%")
         self.metrics_app_ram = QLabel("App RAM: 0 B")
         self.metrics_sys_cpu = QLabel("System CPU: 0.0%")
@@ -380,16 +570,24 @@ class MainWindow(QMainWindow):
         metrics_row.addWidget(self.metrics_ram_health)
         metrics_row.addStretch()
         metrics_row.addWidget(self.metrics_workers)
-        layout.addLayout(metrics_row)
+        stats_row.addWidget(self.stats_frame, 1)
+        queue_layout.addLayout(stats_row)
+
+        self.queue_log_splitter.addWidget(queue_panel)
+
+        log_panel = QWidget()
+        log_layout = QVBoxLayout(log_panel)
+        log_layout.setContentsMargins(0, 0, 0, 0)
+        log_layout.setSpacing(10)
 
         self.log_view = QPlainTextEdit()
         self.log_view.setReadOnly(True)
         self.log_view.setPlaceholderText("Live process logs stream here...")
         log_controls = QHBoxLayout()
-        self.log_filter_combo = QComboBox()
+        self.log_filter_combo = ArrowComboBox()
         self.log_filter_combo.addItem("All logs", "all")
         self.log_filter_combo.addItem("Selected file only", "selected")
-        self.log_level_combo = QComboBox()
+        self.log_level_combo = ArrowComboBox()
         self.log_level_combo.addItem("Any level", "all")
         self.log_level_combo.addItem("Warnings only", "warning")
         self.log_level_combo.addItem("Errors only", "error")
@@ -398,12 +596,15 @@ class MainWindow(QMainWindow):
         log_controls.addWidget(QLabel("Level"))
         log_controls.addWidget(self.log_level_combo)
         log_controls.addStretch()
-        layout.addLayout(log_controls)
-        layout.addWidget(self.log_view, 1)
+        log_layout.addLayout(log_controls)
+        log_layout.addWidget(self.log_view, 1)
+        self.queue_log_splitter.addWidget(log_panel)
+        self.main_splitter.addWidget(right_pane)
 
         self.add_pdf_button.clicked.connect(self._pick_pdfs)
         self.add_folder_button.clicked.connect(self._pick_folder)
         self.start_button.clicked.connect(self.start_batch)
+        self.exit_button.clicked.connect(self.close)
         self.cancel_selected_button.clicked.connect(self.cancel_selected)
         self.cancel_all_button.clicked.connect(self.cancel_all)
         self.clear_button.clicked.connect(self.clear_tasks)
@@ -415,14 +616,25 @@ class MainWindow(QMainWindow):
         self.path_display_combo.currentIndexChanged.connect(self._on_path_display_changed)
         self.log_filter_combo.currentIndexChanged.connect(self._refresh_log_view)
         self.log_level_combo.currentIndexChanged.connect(self._refresh_log_view)
+        self.show_stats_toggle.toggled.connect(self._set_stats_visible)
         self.table.itemSelectionChanged.connect(self._refresh_log_view)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_table_context_menu)
+        self.main_splitter.splitterMoved.connect(lambda _pos, _index: self._sync_empty_state_overlay())
+        self.queue_log_splitter.splitterMoved.connect(lambda _pos, _index: self._sync_empty_state_overlay())
+        self.main_splitter.setStretchFactor(0, 0)
+        self.main_splitter.setStretchFactor(1, 1)
+        self.main_splitter.setSizes([420, 940])
+        self.queue_log_splitter.setStretchFactor(0, 2)
+        self.queue_log_splitter.setStretchFactor(1, 1)
+        self.queue_log_splitter.setSizes([520, 280])
+        self._update_splitter_orientation()
+        self._set_stats_visible(stats_visible)
+        self._sync_empty_state_overlay()
 
     def _build_menus(self) -> None:
         menu = self.menuBar()
         file_menu = menu.addMenu("File")
-        view_menu = menu.addMenu("View")
         tools_menu = menu.addMenu("Tools")
         help_menu = menu.addMenu("Help")
 
@@ -444,8 +656,8 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction(exit_action)
 
-        theme_menu = QMenu("Theme", self)
-        view_menu.addMenu(theme_menu)
+        theme_menu = QMenu("Themes", self)
+        tools_menu.addMenu(theme_menu)
         self.theme_group = QActionGroup(self)
         self.theme_group.setExclusive(True)
         self.theme_actions: dict[str, QAction] = {}
@@ -459,6 +671,9 @@ class MainWindow(QMainWindow):
         open_logs_action = QAction("Open Log Folder", self)
         open_logs_action.triggered.connect(self.open_log_folder)
         tools_menu.addAction(open_logs_action)
+        reset_defaults_action = QAction("Reset to Defaults", self)
+        reset_defaults_action.triggered.connect(self._reset_to_defaults)
+        tools_menu.addAction(reset_defaults_action)
 
         file_manager_menu = QMenu("File Manager", self)
         tools_menu.addMenu(file_manager_menu)
@@ -504,6 +719,52 @@ class MainWindow(QMainWindow):
             action.setChecked(True)
         if save:
             self.settings.setValue("theme", theme)
+
+    def _reset_to_defaults(self) -> None:
+        answer = QMessageBox.question(
+            self,
+            "Reset to Defaults",
+            "Reset appearance and processing preferences to defaults?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+
+        defaults = {
+            "theme": "system",
+            "parallel_mode": "auto",
+            "custom_workers": DEFAULT_WORKERS,
+            "ocr_mode": "smart",
+            "folder_scan_recursive": True,
+            "priority_mode": "normal",
+            "path_display_mode": "elided",
+            "show_stats": True,
+            "file_manager_choice": "auto",
+            "file_manager_custom_cmd": "",
+        }
+        for key, value in defaults.items():
+            self.settings.setValue(key, value)
+
+        self._set_combo_data(self.ocr_mode, "smart")
+        self._set_combo_data(self.parallel_mode, "auto")
+        self.custom_workers.setValue(DEFAULT_WORKERS)
+        self._set_combo_data(self.priority_combo, "normal")
+        self._set_combo_data(self.path_display_combo, "elided")
+        self.folder_scan_recursive = True
+        self.priority_mode = "normal"
+        self.path_display_mode = "elided"
+        self.file_manager_choice = "auto"
+        self.file_manager_custom_cmd = ""
+        self.custom_manager_warned_this_session = False
+        self.show_stats_toggle.setChecked(True)
+        self._set_stats_visible(True)
+        self.set_theme("system")
+        self._update_parallel_mode_controls()
+        self._update_parallel_hint()
+        self._refresh_file_manager_actions()
+        self._on_path_display_changed()
+        self._append_log("Preferences reset to defaults.")
 
     def _set_combo_data(self, combo: QComboBox, value: str) -> None:
         for index in range(combo.count()):
@@ -616,15 +877,43 @@ class MainWindow(QMainWindow):
     def _pick_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Select folder", self.last_dir)
         if folder:
+            recursive_mode = self._prompt_folder_scan_mode(Path(folder))
+            if recursive_mode is None:
+                return
+            self.folder_scan_recursive = recursive_mode
+            self.settings.setValue("folder_scan_recursive", recursive_mode)
             self.last_dir = folder
             self.settings.setValue("last_dir", self.last_dir)
-            self.add_paths([folder])
+            self.add_paths([folder], recursive_folders=recursive_mode)
 
-    def add_paths(self, raw_paths: list[str]) -> None:
+    def _prompt_folder_scan_mode(self, folder: Path) -> bool | None:
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("Folder Scan Mode")
+        dialog.setIcon(QMessageBox.Question)
+        dialog.setText(f"How should OCRestra scan this folder?\n{folder}")
+        dialog.setInformativeText(
+            "Recursive scans include all subfolders. Top-level scans only files in the selected folder."
+        )
+        recursive_btn = dialog.addButton("Recursive (All subfolders)", QMessageBox.AcceptRole)
+        top_level_btn = dialog.addButton("Top-level only", QMessageBox.ActionRole)
+        dialog.addButton(QMessageBox.Cancel)
+        if self.folder_scan_recursive:
+            dialog.setDefaultButton(recursive_btn)
+        else:
+            dialog.setDefaultButton(top_level_btn)
+        dialog.exec()
+        clicked = dialog.clickedButton()
+        if clicked == recursive_btn:
+            return True
+        if clicked == top_level_btn:
+            return False
+        return None
+
+    def add_paths(self, raw_paths: list[str], recursive_folders: bool = True) -> None:
         added = 0
         skipped_large = 0
         queue_limit_hit = False
-        for pdf_path in self._expand_to_pdfs(raw_paths):
+        for pdf_path in self._expand_to_pdfs(raw_paths, recursive_folders=recursive_folders):
             if len(self.tasks) >= MAX_QUEUE_ITEMS:
                 queue_limit_hit = True
                 break
@@ -702,11 +991,12 @@ class MainWindow(QMainWindow):
                 f"Maximum queue size is {MAX_QUEUE_ITEMS} files.\n"
                 "Start/clear current jobs, then add more files.",
             )
+        self._sync_empty_state_overlay()
         self._update_parallel_hint()
         self._update_metrics_labels()
         self._save_queue_state()
 
-    def _expand_to_pdfs(self, raw_paths: list[str]) -> list[Path]:
+    def _expand_to_pdfs(self, raw_paths: list[str], recursive_folders: bool = True) -> list[Path]:
         discovered: list[Path] = []
         seen: set[str] = set()
         hit_discovery_limit = False
@@ -726,6 +1016,25 @@ class MainWindow(QMainWindow):
                         break
                 continue
             if path.is_dir():
+                if not recursive_folders:
+                    try:
+                        for child in path.iterdir():
+                            if not child.is_file() or child.suffix.lower() != ".pdf":
+                                continue
+                            resolved = child.resolve()
+                            key = str(resolved)
+                            if key in seen:
+                                continue
+                            discovered.append(resolved)
+                            seen.add(key)
+                            if len(discovered) >= MAX_DISCOVERED_PDFS:
+                                hit_discovery_limit = True
+                                break
+                    except Exception:
+                        continue
+                    if hit_discovery_limit:
+                        break
+                    continue
                 try:
                     for root, dirs, files in os.walk(path, topdown=True, followlinks=False):
                         root_path = Path(root)
@@ -782,6 +1091,7 @@ class MainWindow(QMainWindow):
         self._update_batch_progress()
         self._update_parallel_hint()
         self._update_metrics_labels()
+        self._sync_empty_state_overlay()
         self._append_log("Cleared queued tasks.")
         self._save_queue_state()
 
@@ -1552,8 +1862,7 @@ class MainWindow(QMainWindow):
         except Exception:
             return False
 
-    @staticmethod
-    def _progress_style_for_value(value: int) -> str:
+    def _progress_style_for_value(self, value: int) -> str:
         if value <= 25:
             color = "#d64545"
         elif value <= 50:
@@ -1564,8 +1873,10 @@ class MainWindow(QMainWindow):
             color = "#3b82f6"
         else:
             color = "#2fa84f"
+        base = self.palette().color(QPalette.Base).name()
+        border = self.palette().color(QPalette.Mid).name()
         return (
-            "QProgressBar { border: 1px solid #4c566a; border-radius: 6px; text-align: center; background: #252b34; }"
+            f"QProgressBar {{ border: 1px solid {border}; border-radius: 6px; text-align: center; background: {base}; }}"
             f"QProgressBar::chunk {{ background: {color}; border-radius: 5px; }}"
         )
 
@@ -1578,15 +1889,15 @@ class MainWindow(QMainWindow):
         return "Red", "#d64545"
 
     def _auto_adjust_table_columns(self) -> None:
-        available = max(700, self.table.viewport().width())
-        status_w = 92
-        progress_w = 230
-        log_w = 110
-        action_w = 126
+        available = max(620, self.table.viewport().width())
+        status_w = 96
+        progress_w = 188
+        log_w = 98
+        action_w = 120
         fixed_total = status_w + progress_w + action_w + log_w
-        stretch = max(420, available - fixed_total - 12)
-        input_w = max(260, int(stretch * 0.6))
-        result_w = max(180, stretch - input_w)
+        stretch = max(360, available - fixed_total - 10)
+        input_w = max(220, int(stretch * 0.62))
+        result_w = max(140, stretch - input_w)
 
         self.table.setColumnWidth(TABLE_COL_STATUS, status_w)
         self.table.setColumnWidth(TABLE_COL_PROGRESS, progress_w)
@@ -1595,9 +1906,43 @@ class MainWindow(QMainWindow):
         self.table.setColumnWidth(TABLE_COL_INPUT, input_w)
         self.table.setColumnWidth(TABLE_COL_RESULT, result_w)
 
+    def _set_stats_visible(self, visible: bool) -> None:
+        if hasattr(self, "stats_frame"):
+            self.stats_frame.setVisible(visible)
+        self.settings.setValue("show_stats", bool(visible))
+
+    def _update_splitter_orientation(self) -> None:
+        if not hasattr(self, "main_splitter"):
+            return
+        desired = Qt.Vertical if self.width() < 1120 else Qt.Horizontal
+        if self.main_splitter.orientation() == desired:
+            return
+        self.main_splitter.setOrientation(desired)
+        if desired == Qt.Horizontal:
+            self.main_splitter.setSizes([420, 940])
+        else:
+            self.main_splitter.setSizes([360, 640])
+
+    def _sync_empty_state_overlay(self) -> None:
+        if not hasattr(self, "empty_state_overlay"):
+            return
+        viewport = self.table.viewport()
+        self.empty_state_overlay.setGeometry(viewport.rect())
+        visible = self.table.rowCount() == 0
+        self.empty_state_overlay.setVisible(visible)
+        if visible:
+            self.empty_state_overlay.raise_()
+
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802
+        if watched is getattr(self, "table_viewport", None) and event.type() in {QEvent.Resize, QEvent.Show}:
+            self._sync_empty_state_overlay()
+        return super().eventFilter(watched, event)
+
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
+        self._update_splitter_orientation()
         self._auto_adjust_table_columns()
+        self._sync_empty_state_overlay()
 
     def _estimate_task_duration(self, task: TaskItem) -> float:
         try:
@@ -1892,7 +2237,7 @@ class MainWindow(QMainWindow):
             self,
             "Usage",
             "1) Drag PDFs/folders or use Add buttons.\n"
-            "2) Choose Parallel files mode.\n"
+            "2) Optional: open Advanced to tune Parallel files and Priority.\n"
             "3) Click Start OCR.\n"
             "4) Cancel Selected/All to stop active jobs immediately.\n"
             "5) Output PDFs are written to OCR_Output next to originals.\n"
@@ -1903,7 +2248,14 @@ class MainWindow(QMainWindow):
         QMessageBox.information(
             self,
             "About",
-            f"{APP_NAME}\n\nPySide6 + OCRmyPDF batch frontend with process-level cancel and live metrics.",
+            f"{APP_NAME}\n\n"
+            "Cross-platform batch OCR desktop app built with PySide6.\n\n"
+            "Highlights:\n"
+            "- Drag-and-drop PDF/folder queue\n"
+            "- Parallel OCR execution with live logs\n"
+            "- Per-file cancel/open-log controls\n"
+            "- Runtime CPU/RAM health indicators\n\n"
+            "Powered by OCRmyPDF, Tesseract, Ghostscript, and qpdf.",
         )
 
     def closeEvent(self, event) -> None:  # noqa: N802
@@ -1927,6 +2279,7 @@ class MainWindow(QMainWindow):
         self.settings.setValue("ocr_mode", self.ocr_mode.currentData())
         self.settings.setValue("priority_mode", self.priority_combo.currentData())
         self.settings.setValue("path_display_mode", self.path_display_combo.currentData())
+        self.settings.setValue("show_stats", self.show_stats_toggle.isChecked())
         self.settings.setValue("file_manager_choice", self.file_manager_choice)
         self.settings.setValue("file_manager_custom_cmd", self.file_manager_custom_cmd)
         self._save_queue_state()
@@ -2002,9 +2355,12 @@ class MainWindow(QMainWindow):
 
 
 def run_app() -> int:
+    _set_windows_app_user_model_id()
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setOrganizationName(ORG_NAME)
+    if hasattr(app, "setDesktopFileName") and _linux_desktop_entry_available("ocr_gui"):
+        app.setDesktopFileName("ocr_gui")
     app_icon = None
     icon_path = _resolve_app_icon_path()
     if icon_path is not None:
