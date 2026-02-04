@@ -65,15 +65,6 @@ If OCR does not start or fails early, verify:
 
 See root `README.md` for install commands by distro.
 
-## Push to GitHub Fails with "fetch first"
-
-Remote has initial commit history not in local.
-
-Typical resolution for fresh repos:
-
-- `git fetch origin --prune`
-- `git push --force-with-lease -u origin main`
-
 ## If You Need Deep Diagnostics
 
 1. Open per-file log with `View Log`.
