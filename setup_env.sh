@@ -80,6 +80,38 @@ configure_qt_runtime() {
   fi
 }
 
+configure_ssl_runtime() {
+  local cert_file
+  cert_file="$("$VENV_DIR/bin/python" - <<'PY'
+import os
+import ssl
+from pathlib import Path
+
+if os.environ.get("SSL_CERT_FILE") or os.environ.get("SSL_CERT_DIR") or os.environ.get("REQUESTS_CA_BUNDLE"):
+    raise SystemExit(0)
+
+verify_paths = ssl.get_default_verify_paths()
+cafile_ok = bool(verify_paths.cafile and Path(verify_paths.cafile).is_file())
+capath_ok = bool(verify_paths.capath and Path(verify_paths.capath).is_dir())
+if cafile_ok or capath_ok:
+    raise SystemExit(0)
+
+try:
+    import certifi
+except Exception:
+    raise SystemExit(0)
+
+bundle = Path(certifi.where())
+if bundle.is_file():
+    print(bundle)
+PY
+)"
+  if [[ -n "$cert_file" ]]; then
+    export SSL_CERT_FILE="$cert_file"
+    export REQUESTS_CA_BUNDLE="$cert_file"
+  fi
+}
+
 mode="${1:---ensure}"
 case "$mode" in
   --ensure)
@@ -90,6 +122,7 @@ case "$mode" in
   --run)
     ensure_env
     configure_qt_runtime
+    configure_ssl_runtime
     cd "$APP_DIR"
     exec "$VENV_DIR/bin/python" -m ocr_app
     ;;

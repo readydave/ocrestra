@@ -9,8 +9,9 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QCloseEvent
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QPushButton, QToolButton
 
 from ocr_app.models import TaskItem
 from ocr_app.ui import MainWindow
@@ -119,11 +120,61 @@ class MainWindowScanTests(unittest.TestCase):
             with mock.patch.object(self.window.table.viewport(), "width", return_value=680):
                 self.window._auto_adjust_table_columns()
 
-            log_button = self.window.table.cellWidget(task.row, 4)
-            action_button = self.window.table.cellWidget(task.row, 5)
+            log_button = self.window._table_cell_control(self.window.table.cellWidget(task.row, 4), QPushButton)
+            action_button = self.window._table_cell_control(self.window.table.cellWidget(task.row, 5), QPushButton)
             self.assertTrue(self.window._table_compact_mode)
             self.assertEqual(log_button.text(), "Log")
-            self.assertEqual(action_button.text(), "Cancel")
+            self.assertEqual(action_button.text(), "Stop")
+
+    def test_auto_adjust_table_columns_resets_horizontal_scroll_when_table_fits(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pdf_path = root / "sample.pdf"
+            pdf_path.write_bytes(b"%PDF-1.4\nsample\n")
+            self._add_task_row(pdf_path)
+
+            with mock.patch.object(self.window.table.viewport(), "width", return_value=980):
+                with mock.patch.object(self.window.table.horizontalScrollBar(), "setValue") as set_value:
+                    self.window._auto_adjust_table_columns()
+
+            set_value.assert_called_with(0)
+            self.assertEqual(self.window.table.horizontalScrollBarPolicy(), Qt.ScrollBarAlwaysOff)
+
+    def test_queue_panel_keeps_table_room_for_one_visible_row(self) -> None:
+        queue_panel = self.window.queue_log_splitter.widget(0)
+
+        self.assertGreaterEqual(self.window.table.minimumHeight(), 100)
+        self.assertGreaterEqual(queue_panel.minimumHeight(), self.window.table.minimumHeight())
+
+    def test_path_display_row_includes_inline_help_button(self) -> None:
+        info_buttons = [
+            button
+            for button in self.window.advanced_section.findChildren(QToolButton, "InfoButton")
+            if "source file paths" in button.toolTip().lower()
+        ]
+        self.assertEqual(len(info_buttons), 1)
+
+    def test_queue_summary_badges_track_unfinished_and_total_counts(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pdf_a = root / "a.pdf"
+            pdf_b = root / "b.pdf"
+            pdf_a.write_bytes(b"%PDF-1.4\na\n")
+            pdf_b.write_bytes(b"%PDF-1.4\nb\n")
+
+            task_a = self._add_task_row(pdf_a)
+            task_b = self._add_task_row(pdf_b)
+
+            self.assertEqual(self.window.queue_active_badge.text(), "2 Active")
+            self.assertEqual(self.window.queue_total_badge.text(), "2 Total")
+
+            task_a.status = "Done"
+            self.window._set_status(task_a, "Done")
+
+            self.assertEqual(self.window.queue_active_badge.text(), "1 Active")
+            self.assertEqual(self.window.queue_total_badge.text(), "2 Total")
+            self.assertTrue(self.window.cancel_all_button.isEnabled())
+            self.assertTrue(self.window.clear_button.isEnabled())
 
     def test_close_event_preserves_unfinished_queue_when_requested(self) -> None:
         with TemporaryDirectory() as tmp:

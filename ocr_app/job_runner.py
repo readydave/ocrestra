@@ -136,11 +136,48 @@ def _is_easyocr_duplicate_registration_error(message: str) -> bool:
     )
 
 
+def _detect_silent_easyocr_failure(details: str) -> str | None:
+    lowered = details.lower()
+    has_traceback = "traceback (most recent call last):" in lowered
+    easyocr_context = (
+        "ocrmypdf_easyocr" in lowered
+        or "easyocr" in lowered
+        or "downloading detection model" in lowered
+        or "download_and_unzip" in lowered
+    )
+    network_failure = (
+        "certificate_verify_failed" in lowered
+        or "urllib.error.urlerror" in lowered
+        or "ssl:" in lowered
+    )
+    if has_traceback and easyocr_context:
+        if network_failure:
+            return (
+                "EasyOCR GPU backend could not download its model files. "
+                "Check certificate trust/network access or retry on CPU."
+            )
+        return "EasyOCR GPU backend raised an internal error before OCR text was produced."
+    return None
+
+
+def _ocrmypdf_progress_bucket(message: str) -> int | None:
+    if not message.startswith("Progress:"):
+        return None
+    match = re.search(r"(\d+(?:\.\d+)?)%", message)
+    if match is None:
+        return None
+    try:
+        return max(0, min(100, int(float(match.group(1)))))
+    except Exception:
+        return None
+
+
 def _run_ocr_command(cmd: list[str]) -> None:
     logger = logging.getLogger("ocr_gui.worker")
     output_tail: list[str] = []
     output_tail_bytes = 0
     output_tail_limit = 16 * 1024
+    last_progress_bucket: int | None = None
 
     def append_tail(chunk: str) -> None:
         nonlocal output_tail_bytes
@@ -168,12 +205,20 @@ def _run_ocr_command(cmd: list[str]) -> None:
             append_tail(line)
             message = line.rstrip()
             if message:
+                progress_bucket = _ocrmypdf_progress_bucket(message)
+                if progress_bucket is not None:
+                    if progress_bucket == last_progress_bucket:
+                        continue
+                    last_progress_bucket = progress_bucket
                 logger.info("ocrmypdf | %s", message)
 
     rc = proc.wait()
+    details = "".join(output_tail).strip()
     if rc != 0:
-        details = "".join(output_tail).strip()
         raise OCRCommandError(rc, details)
+    silent_failure = _detect_silent_easyocr_failure(details)
+    if silent_failure:
+        raise OCRCommandError(None, f"{silent_failure}\n{details}".strip())
 
 
 def _is_gpu_related_failure(details: str) -> bool:

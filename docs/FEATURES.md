@@ -23,6 +23,7 @@
 - Cancel actions terminate worker processes immediately.
 - Runtime check verifies `ocrmypdf` exists in `PATH` before processing.
 - Worker streams OCR output to logs incrementally instead of buffering full command output in memory.
+- GPU EasyOCR tracebacks during model download/init are treated as OCR failures even if `ocrmypdf` exits successfully, so the app can retry on CPU or mark the job failed instead of accepting a non-searchable output.
 
 ## OCR Modes
 
@@ -39,6 +40,7 @@
   - Worker automatically uses `--pdf-renderer sandwich` for EasyOCR compatibility.
   - On GPU/plugin-specific failures, worker retries once on CPU automatically.
   - Worker avoids duplicate EasyOCR plugin registration conflicts.
+  - App launch automatically falls back to the venv `certifi` CA bundle when the host Python SSL trust path is broken, so first-run EasyOCR model downloads keep working.
 - `Optimize for Smaller Output`
   - Applies balanced compression profile (`-O 2`, tuned JPEG/PNG quality).
   - Useful for sharing/email/cloud storage.
@@ -65,6 +67,11 @@ When OCR fails due to mount/permission issues on `/mnt/...`:
 
 ## Progress and Status UX
 
+- Main window uses a custom dashboard shell with:
+  - header action buttons for `Start OCR` and `Exit`
+  - header menu buttons for `Tools` and `Help`
+  - left sidebar cards for input source, advanced settings, and runtime stats
+  - right-side queue and live-log cards
 - Per-file progress bars with color coding:
   - `0-25`: red
   - `26-50`: orange
@@ -75,6 +82,9 @@ When OCR fails due to mount/permission issues on `/mnt/...`:
 - Near completion, running jobs show a finalizing label around 95%.
 - Queue table columns resize against the live viewport width instead of a fixed layout budget.
 - On narrower queue panes, row controls switch to more compact labels such as `Log` and `Open` to reduce horizontal scrolling.
+- Queue header shows:
+  - unfinished item count as `Active`
+  - total queued history count as `Total`
 - Status values include:
   - `Queued`
   - `Running`
@@ -82,10 +92,11 @@ When OCR fails due to mount/permission issues on `/mnt/...`:
   - `Skipped (Already Searchable)`
   - `Failed`
   - `Canceled`
-- Footer metrics include:
-  - app/system CPU and RAM
-  - NVIDIA GPU utilization and VRAM usage (when `nvidia-smi` is available)
-  - active/queued worker count
+- Runtime stats card cluster includes:
+  - CPU card with system usage and app CPU subtext
+  - RAM card with app RSS and system RAM subtext
+  - GPU and VRAM cards when `nvidia-smi` is available
+  - worker count and health summary lines
 - Main splitter and queue/log splitter are user-resizable with larger drag handles and min-width safeguards.
 
 ## Logging
@@ -93,6 +104,7 @@ When OCR fails due to mount/permission issues on `/mnt/...`:
 - Live global log stream in-app.
 - Row-aware filtering: selected file only.
 - Severity filters: any, warnings, errors.
+- OCRmyPDF progress-bar lines are throttled to coarse percentage buckets before logging, so the viewer is not flooded with repeated sub-percent updates.
 - Per-file log files stored under `logs/<batch>/`.
 - Per-file dialog viewer via `View Log` button.
 - Log summary includes timing, size ratios, memory, and CPU deltas.

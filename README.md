@@ -21,6 +21,7 @@ Batch OCR desktop app for Linux/Windows with drag-drop queueing, process-level c
 ## Highlights
 
 - Drag/drop PDFs or folders
+- Custom dashboard shell with header actions, queue summary badges, card-based runtime stats, and an integrated live-log panel
 - `Add Folder` scan mode prompt:
   - recursive (`All subfolders`)
   - non-recursive (`Top-level only`)
@@ -30,6 +31,7 @@ Batch OCR desktop app for Linux/Windows with drag-drop queueing, process-level c
 - Optional GPU OCR backend:
   - `Enable GPU Acceleration (NVIDIA CUDA)` via `ocrmypdf-easyocr`
   - automatic single-file CPU retry when GPU/plugin-specific failures occur
+  - automatic `certifi` CA fallback when the host Python SSL trust path is broken, so EasyOCR model downloads can still succeed
 - Optional output-size profile:
   - `Optimize for Smaller Output` (balanced compression)
 - Parallel presets (`Auto`, `Low`, `Balanced`, `High`, `Turbo`, `Max`, `Custom`)
@@ -118,6 +120,8 @@ To use `Enable GPU Acceleration (NVIDIA CUDA)`:
 - NVIDIA driver + CUDA runtime compatible with installed `torch`
 - `nvidia-smi` available in `PATH` (also used for GPU/VRAM stats in the UI)
 
+If the host Python build has a broken default CA bundle path, OCRestra automatically falls back to the venv's `certifi` bundle at launch so EasyOCR can download its model files on first use.
+
 ### Arch / Garuda
 
 ```bash
@@ -165,7 +169,7 @@ winget install QPDF.QPDF
   - `Parallel files`
 - GPU and compression controls include hover help for recommended use cases/tradeoffs.
 - `Path display` controls how input paths render in table (`Full`, `Elided`, `Filename only`).
-- `Show Stats` toggles metrics visibility (App/System CPU/RAM, plus NVIDIA GPU/VRAM when available).
+- `Show Runtime Stats` toggles the dashboard metrics cards (CPU, RAM, GPU, VRAM, worker summary, and health summary).
 - Main panes are resizable via splitter handles with protected minimum widths for readability.
 - Hovering files over drop zone triggers highlighted border feedback.
 - Progress colors:

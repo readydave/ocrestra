@@ -84,6 +84,39 @@ function Set-QtRuntime {
     }
 }
 
+function Set-SslRuntime {
+    $venvPython = Join-Path $VenvDir "Scripts\python.exe"
+    $certFile = (& $venvPython -c @"
+import os
+import ssl
+from pathlib import Path
+
+if os.environ.get("SSL_CERT_FILE") or os.environ.get("SSL_CERT_DIR") or os.environ.get("REQUESTS_CA_BUNDLE"):
+    raise SystemExit(0)
+
+verify_paths = ssl.get_default_verify_paths()
+cafile_ok = bool(verify_paths.cafile and Path(verify_paths.cafile).is_file())
+capath_ok = bool(verify_paths.capath and Path(verify_paths.capath).is_dir())
+if cafile_ok or capath_ok:
+    raise SystemExit(0)
+
+try:
+    import certifi
+except Exception:
+    raise SystemExit(0)
+
+bundle = Path(certifi.where())
+if bundle.is_file():
+    print(bundle)
+"@).Trim()
+    if ($certFile) {
+        $env:SSL_CERT_FILE = $certFile
+        if (-not $env:REQUESTS_CA_BUNDLE) {
+            $env:REQUESTS_CA_BUNDLE = $certFile
+        }
+    }
+}
+
 switch ($Mode) {
     "--ensure" {
         Ensure-Env
@@ -93,6 +126,7 @@ switch ($Mode) {
     "--run" {
         Ensure-Env
         Set-QtRuntime
+        Set-SslRuntime
         $venvPython = Join-Path $VenvDir "Scripts\python.exe"
         Push-Location $AppDir
         try {
