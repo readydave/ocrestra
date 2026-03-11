@@ -96,6 +96,7 @@ FILE_MANAGER_OPTIONS_MACOS = [
 MAX_STATE_FILE_BYTES = 2 * 1024 * 1024
 MAX_RESTORE_PATHS = 5000
 MAX_CUSTOM_FILE_MANAGER_CMD_LEN = 512
+GPU_METRICS_REFRESH_SECONDS = 4.0
 
 
 def _resolve_app_icon_path() -> Path | None:
@@ -336,6 +337,8 @@ class MainWindow(QMainWindow):
         self.current_use_gpu = False
         self.current_optimize_for_size = False
         self.batch_log_dir: Path | None = None
+        self._cached_gpu_metrics: tuple[float, int, int, int] | None = None
+        self._last_gpu_metrics_probe = 0.0
 
         self.app_proc = psutil.Process(os.getpid())
         self.app_proc.cpu_percent(None)
@@ -1131,15 +1134,20 @@ class MainWindow(QMainWindow):
         seen: set[str] = set()
         hit_discovery_limit = False
         hit_depth_limit = False
+
+        def normalized_pdf_path(path: Path) -> Path:
+            # Prefer cheap absolute normalization during large scans; avoid eager resolve().
+            return path.absolute()
+
         for raw in raw_paths:
             path = Path(raw).expanduser()
             if not path.exists():
                 continue
             if path.is_file() and path.suffix.lower() == ".pdf":
-                resolved = path.resolve()
-                key = str(resolved)
+                normalized = normalized_pdf_path(path)
+                key = str(normalized)
                 if key not in seen:
-                    discovered.append(resolved)
+                    discovered.append(normalized)
                     seen.add(key)
                     if len(discovered) >= MAX_DISCOVERED_PDFS:
                         hit_discovery_limit = True
@@ -1151,11 +1159,13 @@ class MainWindow(QMainWindow):
                         for child in path.iterdir():
                             if not child.is_file() or child.suffix.lower() != ".pdf":
                                 continue
-                            resolved = child.resolve()
-                            key = str(resolved)
+                            if child.is_symlink():
+                                continue
+                            normalized = normalized_pdf_path(child)
+                            key = str(normalized)
                             if key in seen:
                                 continue
-                            discovered.append(resolved)
+                            discovered.append(normalized)
                             seen.add(key)
                             if len(discovered) >= MAX_DISCOVERED_PDFS:
                                 hit_discovery_limit = True
@@ -1184,10 +1194,12 @@ class MainWindow(QMainWindow):
                             file_path = root_path / filename
                             if not file_path.is_file():
                                 continue
-                            resolved = file_path.resolve()
-                            key = str(resolved)
+                            if file_path.is_symlink():
+                                continue
+                            normalized = normalized_pdf_path(file_path)
+                            key = str(normalized)
                             if key not in seen:
-                                discovered.append(resolved)
+                                discovered.append(normalized)
                                 seen.add(key)
                                 if len(discovered) >= MAX_DISCOVERED_PDFS:
                                     hit_discovery_limit = True
@@ -2224,7 +2236,11 @@ class MainWindow(QMainWindow):
         self.metrics_app_ram.setText(_format_bytes(app_ram))
         self.metrics_sys_cpu.setText(f"{sys_cpu:.1f}%")
         self.metrics_sys_ram.setText(f"{sys_ram:.1f}%")
-        gpu_stats = self._query_nvidia_gpu_metrics()
+        now = time.monotonic()
+        if now - self._last_gpu_metrics_probe >= GPU_METRICS_REFRESH_SECONDS:
+            self._cached_gpu_metrics = self._query_nvidia_gpu_metrics()
+            self._last_gpu_metrics_probe = now
+        gpu_stats = self._cached_gpu_metrics
         if gpu_stats is None:
             self.metrics_gpu.setText("N/A")
             self.metrics_gpu_vram.setText("N/A")
@@ -2299,6 +2315,32 @@ class MainWindow(QMainWindow):
         return Path(config_dir) / "queue_state.json"
 
     @staticmethod
+    def _is_secure_state_dir(path: Path) -> bool:
+        if not path.exists():
+            return False
+        if path.is_symlink():
+            return False
+        if os.name == "nt":
+            return True
+        try:
+            path_stat = path.stat()
+        except Exception:
+            return False
+        uid_getter = getattr(os, "getuid", None)
+        if callable(uid_getter) and path_stat.st_uid != uid_getter():
+            return False
+        return (path_stat.st_mode & (stat.S_IWGRP | stat.S_IWOTH)) == 0
+
+    def _ensure_secure_state_dir(self, path: Path) -> bool:
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+            if os.name != "nt":
+                os.chmod(path, 0o700)
+        except Exception:
+            return False
+        return self._is_secure_state_dir(path)
+
+    @staticmethod
     def _is_secure_state_file(path: Path) -> bool:
         if not path.exists():
             return True
@@ -2319,7 +2361,8 @@ class MainWindow(QMainWindow):
             if task.status in {"Queued", "Running", "Canceling..."}
         ]
         state_file = self._state_file_path()
-        state_file.parent.mkdir(parents=True, exist_ok=True)
+        if not self._ensure_secure_state_dir(state_file.parent):
+            return
         if state_file.exists() and not self._is_secure_state_file(state_file):
             return
         if not queued_paths:
@@ -2360,6 +2403,9 @@ class MainWindow(QMainWindow):
     def _restore_queue_state_prompt(self) -> None:
         state_file = self._state_file_path()
         if not state_file.exists():
+            return
+        if not self._is_secure_state_dir(state_file.parent):
+            self._append_log("Skipped restoring queue state due to unsafe config directory permissions.")
             return
         if not self._is_secure_state_file(state_file):
             self._append_log("Skipped restoring queue state due to unsafe state-file permissions.")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import functools
 import importlib.metadata
 import logging
 import os
@@ -108,6 +109,7 @@ def _build_ocr_command(
     return cmd
 
 
+@functools.lru_cache(maxsize=1)
 def _easyocr_plugin_autoregistered() -> bool:
     try:
         entry_points = importlib.metadata.entry_points()
@@ -133,19 +135,43 @@ def _is_easyocr_duplicate_registration_error(message: str) -> bool:
 
 
 def _run_ocr_command(cmd: list[str]) -> None:
+    logger = logging.getLogger("ocr_gui.worker")
+    output_tail: list[str] = []
+    output_tail_bytes = 0
+    output_tail_limit = 16 * 1024
+
+    def append_tail(chunk: str) -> None:
+        nonlocal output_tail_bytes
+        if not chunk:
+            return
+        output_tail.append(chunk)
+        output_tail_bytes += len(chunk.encode("utf-8", errors="replace"))
+        while output_tail and output_tail_bytes > output_tail_limit:
+            dropped = output_tail.pop(0)
+            output_tail_bytes -= len(dropped.encode("utf-8", errors="replace"))
+
     try:
-        subprocess.run(
+        proc = subprocess.Popen(
             cmd,
-            check=True,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
+            bufsize=1,
         )
     except FileNotFoundError as exc:
         raise OCRCommandError(None, "ocrmypdf executable is not available in PATH.") from exc
-    except subprocess.CalledProcessError as exc:
-        details = (exc.stderr or exc.stdout or "").strip()
-        raise OCRCommandError(exc.returncode, details) from exc
+
+    if proc.stdout is not None:
+        for line in proc.stdout:
+            append_tail(line)
+            message = line.rstrip()
+            if message:
+                logger.info("ocrmypdf | %s", message)
+
+    rc = proc.wait()
+    if rc != 0:
+        details = "".join(output_tail).strip()
+        raise OCRCommandError(rc, details)
 
 
 def _is_gpu_related_failure(details: str) -> bool:
@@ -330,13 +356,27 @@ def _safe_log_file(path: Path, task_id: str) -> Path:
     return fallback
 
 
+def _has_symlink_segment(path: Path) -> bool:
+    probe = Path(path.anchor) if path.is_absolute() else Path.cwd()
+    for segment in path.parts:
+        if segment in {"", path.anchor}:
+            continue
+        probe = probe / segment
+        try:
+            if probe.exists() and probe.is_symlink():
+                return True
+        except Exception:
+            return True
+    return False
+
+
 def _safe_output_pdf(path: Path) -> Path:
     if path.suffix.lower() != ".pdf":
         raise ValueError("Output path must be a PDF.")
     if path.exists() and path.is_symlink():
         raise PermissionError("Refusing to overwrite symlink output file.")
-    if path.parent.exists() and path.parent.is_symlink():
-        raise PermissionError("Refusing symlink output directory.")
+    if _has_symlink_segment(path.parent):
+        raise PermissionError("Refusing symlink output directory path.")
     return path
 
 
