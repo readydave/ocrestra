@@ -103,6 +103,28 @@ class MainWindowScanTests(unittest.TestCase):
 
             self.assertFalse(MainWindow._is_secure_state_dir(link_path))
 
+    def test_responsive_table_widths_fit_available_space(self) -> None:
+        for available in (640, 760, 980):
+            widths = MainWindow._responsive_table_widths(available)
+            self.assertLessEqual(sum(widths.values()), available)
+
+    def test_auto_adjust_table_columns_enables_compact_mode_for_narrow_view(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pdf_path = root / "sample.pdf"
+            pdf_path.write_bytes(b"%PDF-1.4\nsample\n")
+            task = self._add_task_row(pdf_path)
+            self.window._set_log_button(task, enabled=True)
+
+            with mock.patch.object(self.window.table.viewport(), "width", return_value=680):
+                self.window._auto_adjust_table_columns()
+
+            log_button = self.window.table.cellWidget(task.row, 4)
+            action_button = self.window.table.cellWidget(task.row, 5)
+            self.assertTrue(self.window._table_compact_mode)
+            self.assertEqual(log_button.text(), "Log")
+            self.assertEqual(action_button.text(), "Cancel")
+
     def test_close_event_preserves_unfinished_queue_when_requested(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

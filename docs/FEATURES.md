@@ -73,6 +73,8 @@ When OCR fails due to mount/permission issues on `/mnt/...`:
   - `100`: green
 - Batch progress bar uses matching color logic.
 - Near completion, running jobs show a finalizing label around 95%.
+- Queue table columns resize against the live viewport width instead of a fixed layout budget.
+- On narrower queue panes, row controls switch to more compact labels such as `Log` and `Open` to reduce horizontal scrolling.
 - Status values include:
   - `Queued`
   - `Running`

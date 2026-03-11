@@ -339,6 +339,8 @@ class MainWindow(QMainWindow):
         self.batch_log_dir: Path | None = None
         self._cached_gpu_metrics: tuple[float, int, int, int] | None = None
         self._last_gpu_metrics_probe = 0.0
+        self._table_compact_mode = False
+        self._adjusting_table_columns = False
 
         self.app_proc = psutil.Process(os.getpid())
         self.app_proc.cpu_percent(None)
@@ -1726,9 +1728,9 @@ class MainWindow(QMainWindow):
     def _set_log_button(self, task: TaskItem, enabled: bool) -> None:
         button = self.table.cellWidget(task.row, TABLE_COL_LOG)
         if isinstance(button, QPushButton):
-            button.setText("View Log")
+            button.setText("Log" if self._table_compact_mode else "View Log")
             button.setEnabled(enabled)
-            button.setMinimumWidth(94)
+            button.setMinimumWidth(64 if self._table_compact_mode else 94)
             button.setToolTip(str(task.log_file))
 
     def _set_progress(self, task: TaskItem, value: int) -> None:
@@ -1741,7 +1743,10 @@ class MainWindow(QMainWindow):
         task.progress_value = value
         bar.setValue(value)
         if task.status == "Running" and value >= 95 and value < 100:
-            bar.setFormat(f"~{value}% (Finalizing/Optimizing)")
+            if self._table_compact_mode:
+                bar.setFormat(f"~{value}%")
+            else:
+                bar.setFormat(f"~{value}% (Finalizing/Optimizing)")
         else:
             bar.setFormat(f"{value}%")
         bar.setStyleSheet(self._progress_style_for_value(value))
@@ -1751,20 +1756,30 @@ class MainWindow(QMainWindow):
         if isinstance(button, QPushButton):
             button.setText(label)
             button.setEnabled(enabled)
-            button.setMinimumWidth(112)
+            button.setMinimumWidth(80 if self._table_compact_mode else 112)
+            button.setToolTip(label)
+
+    def _action_button_label(self, status: str) -> str:
+        if status in {"Queued", "Running"}:
+            return "Cancel"
+        if status.startswith("Done") or status.startswith("Skipped"):
+            return "Open" if self._table_compact_mode else "Open Folder"
+        if status == "Canceling...":
+            return "Stopping" if self._table_compact_mode else "Canceling..."
+        return status
 
     def _refresh_action_button(self, task: TaskItem) -> None:
         status = task.status
         if status in {"Queued", "Running"}:
-            self._set_action_button(task, "Cancel", True)
+            self._set_action_button(task, self._action_button_label(status), True)
             return
         if status.startswith("Done") or status.startswith("Skipped"):
-            self._set_action_button(task, "Open Folder", True)
+            self._set_action_button(task, self._action_button_label(status), True)
             return
         if status == "Canceling...":
-            self._set_action_button(task, "Canceling...", False)
+            self._set_action_button(task, self._action_button_label(status), False)
             return
-        self._set_action_button(task, status, False)
+        self._set_action_button(task, self._action_button_label(status), False)
 
     def _on_action_button_clicked(self, task_id: str) -> None:
         task = self.tasks.get(task_id)
@@ -2099,23 +2114,80 @@ class MainWindow(QMainWindow):
             return None
         return max(utilization_values), used_mib_total, total_mib_total, len(utilization_values)
 
-    def _auto_adjust_table_columns(self) -> None:
-        available = max(620, self.table.viewport().width())
-        status_w = 96
-        progress_w = 188
-        log_w = 98
-        action_w = 120
-        fixed_total = status_w + progress_w + action_w + log_w
-        stretch = max(360, available - fixed_total - 10)
-        input_w = max(220, int(stretch * 0.62))
-        result_w = max(140, stretch - input_w)
+    def _apply_table_compact_mode(self, compact: bool) -> None:
+        if self._table_compact_mode == compact:
+            return
+        self._table_compact_mode = compact
+        for task in self.tasks.values():
+            button = self.table.cellWidget(task.row, TABLE_COL_LOG)
+            enabled = button.isEnabled() if isinstance(button, QPushButton) else False
+            self._set_log_button(task, enabled=enabled)
+            self._refresh_action_button(task)
+            self._set_progress(task, task.progress_value)
 
-        self.table.setColumnWidth(TABLE_COL_STATUS, status_w)
-        self.table.setColumnWidth(TABLE_COL_PROGRESS, progress_w)
-        self.table.setColumnWidth(TABLE_COL_ACTION, action_w)
-        self.table.setColumnWidth(TABLE_COL_LOG, log_w)
-        self.table.setColumnWidth(TABLE_COL_INPUT, input_w)
-        self.table.setColumnWidth(TABLE_COL_RESULT, result_w)
+    @staticmethod
+    def _responsive_table_widths(available: int) -> dict[int, int]:
+        preferred = {
+            TABLE_COL_INPUT: 320,
+            TABLE_COL_STATUS: 96,
+            TABLE_COL_PROGRESS: 188,
+            TABLE_COL_RESULT: 220,
+            TABLE_COL_LOG: 98,
+            TABLE_COL_ACTION: 120,
+        }
+        minimum = {
+            TABLE_COL_INPUT: 150,
+            TABLE_COL_STATUS: 76,
+            TABLE_COL_PROGRESS: 124,
+            TABLE_COL_RESULT: 96,
+            TABLE_COL_LOG: 64,
+            TABLE_COL_ACTION: 82,
+        }
+        widths = dict(preferred)
+        usable = max(sum(minimum.values()), available - 8)
+        preferred_total = sum(preferred.values())
+        if usable >= preferred_total:
+            extra = usable - preferred_total
+            input_extra = int(extra * 0.6)
+            widths[TABLE_COL_INPUT] += input_extra
+            widths[TABLE_COL_RESULT] += extra - input_extra
+            return widths
+
+        deficit = preferred_total - usable
+        shrink_order = (
+            TABLE_COL_INPUT,
+            TABLE_COL_RESULT,
+            TABLE_COL_PROGRESS,
+            TABLE_COL_ACTION,
+            TABLE_COL_LOG,
+            TABLE_COL_STATUS,
+        )
+        for col in shrink_order:
+            headroom = widths[col] - minimum[col]
+            if headroom <= 0:
+                continue
+            take = min(headroom, deficit)
+            widths[col] -= take
+            deficit -= take
+            if deficit <= 0:
+                break
+        return widths
+
+    def _auto_adjust_table_columns(self) -> None:
+        if self._adjusting_table_columns:
+            return
+        available = self.table.viewport().width()
+        if available <= 0:
+            return
+        self._adjusting_table_columns = True
+        try:
+            widths = self._responsive_table_widths(available)
+            compact = available < 860 or widths[TABLE_COL_LOG] <= 76 or widths[TABLE_COL_ACTION] <= 90
+            self._apply_table_compact_mode(compact)
+            for col, width in widths.items():
+                self.table.setColumnWidth(col, width)
+        finally:
+            self._adjusting_table_columns = False
 
     def _set_stats_visible(self, visible: bool) -> None:
         if hasattr(self, "stats_frame"):
@@ -2146,6 +2218,7 @@ class MainWindow(QMainWindow):
 
     def eventFilter(self, watched, event) -> bool:  # noqa: N802
         if watched is getattr(self, "table_viewport", None) and event.type() in {QEvent.Resize, QEvent.Show}:
+            self._auto_adjust_table_columns()
             self._sync_empty_state_overlay()
         return super().eventFilter(watched, event)
 
