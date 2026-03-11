@@ -1,6 +1,39 @@
-# Implementation Plan: Performance + Security Fixes
+# Implementation Plan / To-Do: Performance + Security Fixes
 
 This plan turns the findings in `docs/PERF_SECURITY_REVIEW.md` into staged, shippable changes.
+
+## Active To-Do
+
+### Remaining hardening and follow-up work
+
+- [ ] Harden the final output write path further:
+  - prefer trusted temp-write + atomic replace flow
+  - use `O_NOFOLLOW` or equivalent no-follow protections where practical on POSIX
+  - add explicit validation around post-check path swaps / TOCTOU scenarios
+- [ ] Finish the large-tree discovery follow-up:
+  - benchmark current folder-scan behavior on large/deep trees
+  - evaluate lighter dedupe/canonicalization approaches such as `stat()`-based identity for local filesystems
+  - keep existing queue, depth, and file-count safety limits intact
+- [ ] Add targeted validation coverage for the merged refactors:
+  - CPU-only OCR smoke test
+  - GPU-enabled OCR smoke test when available
+  - nested folder scan regression test
+  - queue/session restore regression test
+- [ ] Run and record a clean baseline from `scripts/security_scan.sh`.
+- [ ] Add a future UX option for `Exit`:
+  - allow preserving unfinished queue items for restore on next launch instead of always clearing them on cancel-and-exit
+  - define expected behavior for queued items vs actively running items
+
+## Completed in merged branch
+
+- [x] Cache EasyOCR plugin discovery for the process lifetime.
+- [x] Throttle GPU metrics polling by caching `nvidia-smi` results between UI refreshes.
+- [x] Stream OCRmyPDF output instead of buffering full command output in memory.
+- [x] Enforce private queue-state directory/file permissions before load/save.
+- [x] Reduce eager path resolution during folder scans and skip symlinked files.
+- [x] Reject symlink segments in output destination directory paths.
+
+## Historical plan details
 
 ## Phase 1 — Fast Wins (Low risk, high ROI)
 

@@ -43,6 +43,9 @@
    - `TROUBLESHOOTING.md` (if failure modes change)
    - `GARUDA_LAUNCHER.md` (if launcher workflow changes)
    - `README.md` highlights if user-facing.
+   - `changelog.md` for notable user-facing, operational, or release-relevant changes.
+   - `docs/README.md` when adding or reorganizing documentation pages.
+   - `docs/IMPLEMENTATION_PLAN.md` when refactor/security follow-up scope or status changes.
 
 ## Function Reference
 

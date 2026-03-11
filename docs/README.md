@@ -12,6 +12,8 @@ This folder is the full documentation set for OCRestra.
 - `GARUDA_LAUNCHER.md`: Install/update a Start Menu launcher on Garuda Linux.
 - `CODE_MAP.md`: Module-by-module developer map of responsibilities.
 - `DEVELOPER.md`: Development workflow, code map, and extension notes.
+- `PERF_SECURITY_REVIEW.md`: Static review findings for refactor and security risks.
+- `IMPLEMENTATION_PLAN.md`: Active to-do list and staged follow-up plan.
 - `FUNCTION_INDEX.md`: Auto-generated index of modules, functions, and methods.
 - `FUNCTION_DESCRIPTIONS.md`: Plain-language explanations of what functions/methods do.
 - `CHANGELOG.md`: Project history and release notes.

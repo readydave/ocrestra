@@ -18,6 +18,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Hardened queue-state persistence by enforcing private config directory permissions before load/save.
 - Optimized large folder PDF discovery by avoiding eager path resolution and skipping symlinked files.
 - Tightened output-path validation by rejecting symlink segments in destination directory paths.
+- Updated documentation indexes and planning docs to surface the performance/security review, active to-do list, and expected doc maintenance workflow.
 
 ## [0.1.0] - 2026-03-11
 

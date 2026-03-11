@@ -11,6 +11,8 @@ Batch OCR desktop app for Linux/Windows with drag-drop queueing, process-level c
 - Architecture: `docs/ARCHITECTURE.md`
 - Code map: `docs/CODE_MAP.md`
 - Developer guide: `docs/DEVELOPER.md`
+- Performance/security review: `docs/PERF_SECURITY_REVIEW.md`
+- Implementation plan / to-do: `docs/IMPLEMENTATION_PLAN.md`
 - Function index: `docs/FUNCTION_INDEX.md`
 - Function descriptions: `docs/FUNCTION_DESCRIPTIONS.md`
 - Changelog: `changelog.md`
