@@ -49,13 +49,15 @@ Messages sent from worker to UI queue:
 - Logs: `logs/<batch_id>/<file>_<task_id>.log`
 - Temp: `<system_temp>/ocr_gui_jobs/<task_id>`
 - Output: `<input_parent>/OCR_Output/<original_name>.pdf`
+- Final output installation uses temp staging plus atomic replace into the validated output directory.
 - `/mnt` failures trigger temp staging fallback.
 
 ## Safety and Hardening Notes
 
 - Queue restore validates state file and limits restore volume.
 - Custom file manager templates are validated and constrained.
-- Folder scanning avoids symlink-directory traversal.
+- Folder scanning avoids symlink traversal for directories and direct PDF inputs.
+- Folder discovery can dedupe repeated files by filesystem identity where available.
 - Temp cleanup constrained to configured temp root.
 
 ## UI Threading Model

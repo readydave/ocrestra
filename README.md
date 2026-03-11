@@ -50,6 +50,9 @@ Batch OCR desktop app for Linux/Windows with drag-drop queueing, process-level c
 - File-manager selection menu (`Tools -> File Manager`) with unavailable managers disabled
 - `/mnt` permission/mount fallback via temp staging and move-back
 - Queue/session persistence with restore prompt on restart
+- Exit prompt for running batches:
+  - `Save Queue and Exit` re-queues unfinished files on next launch
+  - `Discard Queue and Exit` clears them
 - Theme menu: `Tools -> Themes` (`System`, `Dark`, `Light`)
 - `Tools -> Reset to Defaults` for UI and processing preferences
 
@@ -149,6 +152,7 @@ winget install QPDF.QPDF
 - Per-file logs are stored under `logs/<batch_id>/`.
 - `Tools -> Open Log Folder` opens the current batch log folder.
 - Queue state is saved under app config and restored on next launch (prompted).
+- Exiting with running jobs prompts to either save unfinished queue items for next launch or discard them.
 
 ## UI Notes
 

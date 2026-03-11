@@ -79,12 +79,16 @@ Direct venv launch:
 
 - Cancel terminates the worker process and marks the row as `Canceled`.
 - Temporary work directory for that task is cleaned up.
+- If you exit while jobs are still running, OCRestra prompts you to either:
+  - save unfinished queue items for restore next launch
+  - discard the unfinished queue and exit immediately
 
 ## 9) Session Restore
 
 - Queue state is saved periodically.
 - On next launch, OCRestra prompts to restore queued items.
 - Restored paths are validated as existing `.pdf` files.
+- If you chose `Save Queue and Exit` during shutdown, both queued items and interrupted running files are restored as queued items on the next launch.
 
 ## 10) Requirements
 

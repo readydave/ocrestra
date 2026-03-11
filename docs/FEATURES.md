@@ -8,7 +8,7 @@
   - top-level only (selected folder only)
 - PDF matching is case-insensitive.
 - Symlink directory traversal is disabled during folder walk.
-- Duplicate files are de-duplicated per queue by resolved path.
+- Duplicate files are de-duplicated per queue by normalized path and, when available, filesystem identity (`st_dev`, `st_ino`).
 - Queue and discovery limits:
   - max queued files: `5000`
   - max discovered PDFs per add operation: `20000`
@@ -17,11 +17,12 @@
 
 ## OCR Execution Engine
 
-- OCR processing executes OCRmyPDF CLI in each worker process via validated argument lists (`subprocess.run`, no shell mode).
+- OCR processing executes OCRmyPDF CLI in each worker process via validated argument lists (`Popen`, no shell mode).
 - Each queued file runs in its own Python multiprocessing worker.
 - UI remains non-blocking while jobs run.
 - Cancel actions terminate worker processes immediately.
 - Runtime check verifies `ocrmypdf` exists in `PATH` before processing.
+- Worker streams OCR output to logs incrementally instead of buffering full command output in memory.
 
 ## OCR Modes
 
@@ -59,7 +60,7 @@ When OCR fails due to mount/permission issues on `/mnt/...`:
 
 1. File is copied to task temp staging.
 2. OCR runs in temp location.
-3. Result is moved back to output folder.
+3. Result is atomically installed into the validated output folder.
 4. Fallback usage is logged and surfaced in task status.
 
 ## Progress and Status UX
@@ -106,6 +107,16 @@ When OCR fails due to mount/permission issues on `/mnt/...`:
   - Copy log path
   - Open output folder
   - View log
+
+## Session Restore and Exit Handling
+
+- Queue state is persisted periodically to the app config location.
+- On next launch, restore prompts validate queued file paths before re-adding them.
+- Exiting while jobs are running prompts for one of three actions:
+  - `Save Queue and Exit`
+  - `Discard Queue and Exit`
+  - `Cancel`
+- `Save Queue and Exit` cancels running worker processes and restores unfinished files as queued items on the next launch.
 
 ## File Manager Integration
 

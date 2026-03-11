@@ -4,12 +4,7 @@ This plan turns the findings in `docs/PERF_SECURITY_REVIEW.md` into staged, ship
 
 ## Active To-Do
 
-### Remaining hardening and follow-up work
-
-- [ ] Run a manual GPU-enabled OCR smoke test when an NVIDIA-capable environment is available.
-- [ ] Add a future UX option for `Exit`:
-  - allow preserving unfinished queue items for restore on next launch instead of always clearing them on cancel-and-exit
-  - define expected behavior for queued items vs actively running items
+No open items remain from this plan as of 2026-03-11.
 
 ## Completed in merged branch
 
@@ -26,6 +21,14 @@ This plan turns the findings in `docs/PERF_SECURITY_REVIEW.md` into staged, ship
   - `gitleaks detect --source . --no-banner --redact` -> no leaks found
 - [x] Capture a synthetic folder-scan benchmark:
   - `1000` synthetic PDFs discovered in `0.0053s` on 2026-03-11
+- [x] Run a GPU-enabled OCR smoke test on local NVIDIA hardware:
+  - `NVIDIA GeForce RTX 4090`
+  - EasyOCR plugin installed in app venv
+  - worker job completed successfully in `2.89s`
+  - `used_cpu_fallback`: `false`
+- [x] Add exit-time queue preservation UX for running batches:
+  - `Save Queue and Exit` cancels running work and restores unfinished files on next launch
+  - `Discard Queue and Exit` cancels running work and clears the unfinished queue
 
 ## Historical plan details
 

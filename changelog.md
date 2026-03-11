@@ -11,6 +11,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Added `docs/IMPLEMENTATION_PLAN.md` to track staged performance and security refactors.
 - Started formal release versioning with a repository `VERSION` file and package `__version__` export.
 - Added targeted `unittest` coverage for output-path hardening, folder-scan dedupe/symlink handling, and secure state-directory checks.
+- Added an exit prompt for running batches so unfinished files can be saved for restore on the next launch or discarded on exit.
 
 ### Changed
 - Cached EasyOCR plugin auto-registration detection to avoid repeated entry-point scans per OCR job.

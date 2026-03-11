@@ -2363,12 +2363,25 @@ class MainWindow(QMainWindow):
             return False
         return (mode & (stat.S_IWGRP | stat.S_IWOTH)) == 0
 
-    def _save_queue_state(self) -> None:
-        queued_paths = [
-            str(task.input_path)
-            for task in self.tasks.values()
-            if task.status in {"Queued", "Running", "Canceling..."}
-        ]
+    def _unfinished_queue_paths(self) -> list[str]:
+        queued_paths: list[str] = []
+        seen: set[str] = set()
+        for task in self.tasks.values():
+            if task.status not in {"Queued", "Running", "Canceling..."}:
+                continue
+            key = str(task.input_path)
+            if key in seen:
+                continue
+            seen.add(key)
+            queued_paths.append(key)
+        return queued_paths
+
+    def _save_queue_state(self, queued_paths_override: list[str] | None = None) -> None:
+        queued_paths = (
+            list(queued_paths_override)
+            if queued_paths_override is not None
+            else self._unfinished_queue_paths()
+        )
         state_file = self._state_file_path()
         if not self._ensure_secure_state_dir(state_file.parent):
             return
@@ -2492,6 +2505,30 @@ class MainWindow(QMainWindow):
         self.add_paths(queued_paths)
         self._append_log(f"Restored {len(queued_paths)} queued item(s) from previous session.")
 
+    def _prompt_exit_queue_action(self, unfinished_count: int, running_count: int) -> str:
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("Exit")
+        dialog.setIcon(QMessageBox.Question)
+        dialog.setText(
+            f"There are {running_count} OCR job(s) still running and {unfinished_count} unfinished item(s) in the queue."
+        )
+        dialog.setInformativeText(
+            "Save unfinished files for restore next launch, or discard the queue and exit now?"
+        )
+        save_btn = dialog.addButton("Save Queue and Exit", QMessageBox.AcceptRole)
+        discard_btn = dialog.addButton("Discard Queue and Exit", QMessageBox.DestructiveRole)
+        cancel_btn = dialog.addButton(QMessageBox.Cancel)
+        dialog.setDefaultButton(save_btn)
+        dialog.exec()
+        clicked = dialog.clickedButton()
+        if clicked is save_btn:
+            return "preserve"
+        if clicked is discard_btn:
+            return "discard"
+        if clicked is cancel_btn:
+            return "cancel"
+        return "cancel"
+
     def show_usage(self) -> None:
         QMessageBox.information(
             self,
@@ -2520,17 +2557,20 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:  # noqa: N802
         running = [task for task in self.tasks.values() if task.status == "Running"]
+        queued_paths_override: list[str] | None = None
         if running:
-            answer = QMessageBox.question(
-                self,
-                "Exit",
-                "There are OCR jobs running. Cancel all and exit?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
-            )
-            if answer != QMessageBox.Yes:
+            unfinished_count = len(self._unfinished_queue_paths())
+            action = self._prompt_exit_queue_action(unfinished_count, len(running))
+            if action == "cancel":
                 event.ignore()
                 return
+            if action == "preserve":
+                queued_paths_override = self._unfinished_queue_paths()
+                self._append_log(
+                    f"Saved {len(queued_paths_override)} unfinished queued item(s) for restore on next launch."
+                )
+            else:
+                self._append_log("Discarded unfinished queue on exit.")
             self.cancel_all()
         self.settings.setValue("last_dir", self.last_dir)
         self.settings.setValue("theme", self.theme)
@@ -2544,7 +2584,7 @@ class MainWindow(QMainWindow):
         self.settings.setValue("show_stats", self.show_stats_toggle.isChecked())
         self.settings.setValue("file_manager_choice", self.file_manager_choice)
         self.settings.setValue("file_manager_custom_cmd", self.file_manager_custom_cmd)
-        self._save_queue_state()
+        self._save_queue_state(queued_paths_override=queued_paths_override)
         super().closeEvent(event)
 
     def _append_log(self, message: str, task_id: str | None = None) -> None:

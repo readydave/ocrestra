@@ -57,7 +57,7 @@ Use `FUNCTION_INDEX.md` for the canonical name list and this file for behavior i
 - `_build_menus`: Build menu bar and menu actions.
 - `_apply_saved_theme`: Apply previously selected theme.
 - `set_theme`: Switch and persist theme mode.
-- `closeEvent`: Persist settings/state and handle safe shutdown.
+- `closeEvent`: Persist settings/state and handle safe shutdown, including exit-time queue preservation choices for running work.
 
 #### Settings / Utility
 
@@ -159,9 +159,12 @@ Use `FUNCTION_INDEX.md` for the canonical name list and this file for behavior i
 #### Persistence / State Restore
 
 - `_state_file_path`: Resolve queue state file location.
+- `_is_secure_state_dir`: Validate queue-state parent directory permissions/safety.
 - `_is_secure_state_file`: Validate queue state file permissions/safety.
+- `_unfinished_queue_paths`: Gather distinct queued/running input paths eligible for restore.
 - `_save_queue_state`: Persist queue + selected options with atomic safe write.
 - `_restore_queue_state_prompt`: Prompt and restore queue/settings from saved state.
+- `_prompt_exit_queue_action`: Prompt for preserve/discard/cancel behavior when exiting with running jobs.
 
 #### Miscellaneous
 
