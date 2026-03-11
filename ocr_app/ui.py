@@ -1131,7 +1131,8 @@ class MainWindow(QMainWindow):
 
     def _expand_to_pdfs(self, raw_paths: list[str], recursive_folders: bool = True) -> list[Path]:
         discovered: list[Path] = []
-        seen: set[str] = set()
+        seen_paths: set[str] = set()
+        seen_files: set[tuple[int, int]] = set()
         hit_discovery_limit = False
         hit_depth_limit = False
 
@@ -1139,36 +1140,53 @@ class MainWindow(QMainWindow):
             # Prefer cheap absolute normalization during large scans; avoid eager resolve().
             return path.absolute()
 
+        def add_discovered_pdf(path: Path) -> None:
+            nonlocal hit_discovery_limit
+            if path.is_symlink() or path.suffix.lower() != ".pdf":
+                return
+            try:
+                file_stat = path.stat()
+            except Exception:
+                return
+            if not stat.S_ISREG(file_stat.st_mode):
+                return
+
+            normalized = normalized_pdf_path(path)
+            key = str(normalized)
+            identity: tuple[int, int] | None = None
+            inode = getattr(file_stat, "st_ino", 0)
+            device = getattr(file_stat, "st_dev", None)
+            if inode and device is not None:
+                identity = (int(device), int(inode))
+                if identity in seen_files:
+                    return
+            if key in seen_paths:
+                return
+
+            discovered.append(normalized)
+            seen_paths.add(key)
+            if identity is not None:
+                seen_files.add(identity)
+            if len(discovered) >= MAX_DISCOVERED_PDFS:
+                hit_discovery_limit = True
+
         for raw in raw_paths:
             path = Path(raw).expanduser()
             if not path.exists():
                 continue
-            if path.is_file() and path.suffix.lower() == ".pdf":
-                normalized = normalized_pdf_path(path)
-                key = str(normalized)
-                if key not in seen:
-                    discovered.append(normalized)
-                    seen.add(key)
-                    if len(discovered) >= MAX_DISCOVERED_PDFS:
-                        hit_discovery_limit = True
-                        break
+            if path.suffix.lower() == ".pdf":
+                add_discovered_pdf(path)
+                if hit_discovery_limit:
+                    break
                 continue
             if path.is_dir():
                 if not recursive_folders:
                     try:
                         for child in path.iterdir():
-                            if not child.is_file() or child.suffix.lower() != ".pdf":
+                            if child.suffix.lower() != ".pdf":
                                 continue
-                            if child.is_symlink():
-                                continue
-                            normalized = normalized_pdf_path(child)
-                            key = str(normalized)
-                            if key in seen:
-                                continue
-                            discovered.append(normalized)
-                            seen.add(key)
-                            if len(discovered) >= MAX_DISCOVERED_PDFS:
-                                hit_discovery_limit = True
+                            add_discovered_pdf(child)
+                            if hit_discovery_limit:
                                 break
                     except Exception:
                         continue
@@ -1192,18 +1210,9 @@ class MainWindow(QMainWindow):
                             if not filename.lower().endswith(".pdf"):
                                 continue
                             file_path = root_path / filename
-                            if not file_path.is_file():
-                                continue
-                            if file_path.is_symlink():
-                                continue
-                            normalized = normalized_pdf_path(file_path)
-                            key = str(normalized)
-                            if key not in seen:
-                                discovered.append(normalized)
-                                seen.add(key)
-                                if len(discovered) >= MAX_DISCOVERED_PDFS:
-                                    hit_discovery_limit = True
-                                    break
+                            add_discovered_pdf(file_path)
+                            if hit_discovery_limit:
+                                break
                         if hit_discovery_limit:
                             break
                 except Exception:

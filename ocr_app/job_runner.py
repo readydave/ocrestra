@@ -7,7 +7,9 @@ import logging
 import os
 import re
 import shutil
+import stat
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 from queue import Full
@@ -363,7 +365,7 @@ def _has_symlink_segment(path: Path) -> bool:
             continue
         probe = probe / segment
         try:
-            if probe.exists() and probe.is_symlink():
+            if probe.is_symlink():
                 return True
         except Exception:
             return True
@@ -373,11 +375,104 @@ def _has_symlink_segment(path: Path) -> bool:
 def _safe_output_pdf(path: Path) -> Path:
     if path.suffix.lower() != ".pdf":
         raise ValueError("Output path must be a PDF.")
-    if path.exists() and path.is_symlink():
+    if path.is_symlink():
         raise PermissionError("Refusing to overwrite symlink output file.")
     if _has_symlink_segment(path.parent):
         raise PermissionError("Refusing symlink output directory path.")
     return path
+
+
+def _ensure_safe_output_dir(path: Path) -> Path:
+    if _has_symlink_segment(path):
+        raise PermissionError("Refusing symlink output directory path.")
+    path.mkdir(parents=True, exist_ok=True)
+    if path.is_symlink() or _has_symlink_segment(path):
+        raise PermissionError("Refusing symlink output directory path.")
+    return path
+
+
+def _copy_file_to_fd(src: Path, dest_fd: int) -> None:
+    with src.open("rb") as src_handle, os.fdopen(dest_fd, "wb") as dest_handle:
+        shutil.copyfileobj(src_handle, dest_handle)
+        dest_handle.flush()
+        os.fsync(dest_handle.fileno())
+
+
+def _install_output_pdf_generic(staged_output: Path, output_pdf: Path) -> None:
+    output_dir = _ensure_safe_output_dir(output_pdf.parent)
+    temp_fd, temp_name = tempfile.mkstemp(
+        prefix=".ocrestra-",
+        suffix=".tmp",
+        dir=output_dir,
+    )
+    temp_path = Path(temp_name)
+    try:
+        _copy_file_to_fd(staged_output, temp_fd)
+        if output_pdf.is_symlink():
+            raise PermissionError("Refusing to overwrite symlink output file.")
+        os.replace(temp_path, output_pdf)
+    except Exception:
+        try:
+            if temp_path.exists():
+                temp_path.unlink()
+        except Exception:
+            pass
+        raise
+
+
+def _install_output_pdf_posix(staged_output: Path, output_pdf: Path) -> None:
+    output_dir = _ensure_safe_output_dir(output_pdf.parent)
+    dir_flags = os.O_RDONLY
+    if hasattr(os, "O_DIRECTORY"):
+        dir_flags |= os.O_DIRECTORY
+    if hasattr(os, "O_CLOEXEC"):
+        dir_flags |= os.O_CLOEXEC
+    dir_fd = os.open(output_dir, dir_flags)
+    temp_name = f".ocrestra-{os.getpid()}-{time.time_ns()}.tmp"
+    temp_fd: int | None = None
+    try:
+        temp_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        if hasattr(os, "O_NOFOLLOW"):
+            temp_flags |= os.O_NOFOLLOW
+        temp_fd = os.open(temp_name, temp_flags, 0o600, dir_fd=dir_fd)
+        _copy_file_to_fd(staged_output, temp_fd)
+        temp_fd = None
+        try:
+            current = os.stat(output_pdf.name, dir_fd=dir_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            current = None
+        if current is not None and stat.S_ISLNK(current.st_mode):
+            raise PermissionError("Refusing to overwrite symlink output file.")
+        os.replace(temp_name, output_pdf.name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+        try:
+            os.fsync(dir_fd)
+        except OSError:
+            pass
+    except Exception:
+        if temp_fd is not None:
+            try:
+                os.close(temp_fd)
+            except OSError:
+                pass
+        try:
+            os.unlink(temp_name, dir_fd=dir_fd)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            pass
+        raise
+    finally:
+        os.close(dir_fd)
+
+
+def _install_output_pdf(staged_output: Path, output_pdf: Path) -> None:
+    output_pdf = _safe_output_pdf(output_pdf)
+    if not staged_output.exists() or staged_output.is_symlink():
+        raise FileNotFoundError(f"Staged output is missing or unsafe: {staged_output}")
+    if os.name != "nt":
+        _install_output_pdf_posix(staged_output, output_pdf)
+        return
+    _install_output_pdf_generic(staged_output, output_pdf)
 
 
 def run_ocr_job(config: dict[str, Any], queue_obj: Any) -> None:
@@ -466,23 +561,25 @@ def run_ocr_job(config: dict[str, Any], queue_obj: Any) -> None:
     error_message = ""
     used_cpu_fallback = False
     ocrmypdf_bin = shutil.which("ocrmypdf")
+    staged_output = temp_dir / f"{task_id}_output.pdf"
     try:
         if not ocrmypdf_bin:
             error_message = "ocrmypdf command was not found in PATH."
             logger.error("%s", error_message)
             queue_obj.put({"type": "status", "task_id": task_id, "status": "Failed"})
         else:
-            output_pdf.parent.mkdir(parents=True, exist_ok=True)
+            temp_dir.mkdir(parents=True, exist_ok=True)
             try:
                 used_cpu_fallback = _run_with_gpu_retry(
                     ocrmypdf_bin,
                     input_pdf,
-                    output_pdf,
+                    staged_output,
                     force_ocr,
                     use_gpu,
                     optimize_for_size,
                     logger,
                 )
+                _install_output_pdf(staged_output, output_pdf)
                 success = True
             except OCRCommandError as exc:
                 if _should_fallback_to_tmp(input_pdf, exc):
@@ -491,7 +588,7 @@ def run_ocr_job(config: dict[str, Any], queue_obj: Any) -> None:
                         logger.warning("Permission/mount issue detected. Retrying via %s", temp_dir)
                         temp_dir.mkdir(parents=True, exist_ok=True)
                         temp_input = temp_dir / input_pdf.name
-                        temp_output = temp_dir / f"{input_pdf.stem}_ocr.pdf"
+                        temp_output = temp_dir / f"{task_id}_fallback_output.pdf"
                         shutil.copy2(input_pdf, temp_input)
                         used_cpu_fallback = _run_with_gpu_retry(
                             ocrmypdf_bin,
@@ -502,7 +599,7 @@ def run_ocr_job(config: dict[str, Any], queue_obj: Any) -> None:
                             optimize_for_size,
                             logger,
                         )
-                        shutil.move(str(temp_output), str(output_pdf))
+                        _install_output_pdf(temp_output, output_pdf)
                         success = True
                     except OCRCommandError as fallback_exc:
                         error_message = _format_ocr_error(fallback_exc)

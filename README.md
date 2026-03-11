@@ -238,6 +238,8 @@ Note: target systems still need host OCR tools (`tesseract`, `gs`, `qpdf`), and 
 - Path safety:
   - output temp cleanup restricted to configured temp root
   - output naming refuses symlink output directories/files
+  - final PDFs are staged in temp space and atomically installed into validated output directories
+  - folder scans skip symlinked PDF inputs and dedupe repeated files by filesystem identity when available
 - Secret and dependency scanning:
   - CI: `.github/workflows/security.yml`
   - Local helper: `./scripts/security_scan.sh`

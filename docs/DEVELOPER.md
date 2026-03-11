@@ -19,9 +19,13 @@
 2. Launch with `python -m ocr_app`
 3. Run compile checks:
    - `python -m py_compile ocr_gui.py ocr_app/__main__.py ocr_app/ui.py ocr_app/job_runner.py ocr_app/themes.py ocr_app/models.py ocr_app/config.py`
-4. Run local security scan helper (optional but recommended):
+4. Run targeted tests:
+   - `./.venv/bin/python -m unittest discover -s tests -v`
+5. Run local security scan helper (optional but recommended):
    - `./scripts/security_scan.sh`
-5. Optional Linux packaging:
+   - If `pip-audit` is not installed, an ephemeral run also works:
+     - `uvx --from pip-audit pip-audit -r requirements.txt`
+6. Optional Linux packaging:
    - `./scripts/build_appimage.sh`
 
 ## Coding Notes

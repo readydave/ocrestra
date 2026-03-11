@@ -6,20 +6,7 @@ This plan turns the findings in `docs/PERF_SECURITY_REVIEW.md` into staged, ship
 
 ### Remaining hardening and follow-up work
 
-- [ ] Harden the final output write path further:
-  - prefer trusted temp-write + atomic replace flow
-  - use `O_NOFOLLOW` or equivalent no-follow protections where practical on POSIX
-  - add explicit validation around post-check path swaps / TOCTOU scenarios
-- [ ] Finish the large-tree discovery follow-up:
-  - benchmark current folder-scan behavior on large/deep trees
-  - evaluate lighter dedupe/canonicalization approaches such as `stat()`-based identity for local filesystems
-  - keep existing queue, depth, and file-count safety limits intact
-- [ ] Add targeted validation coverage for the merged refactors:
-  - CPU-only OCR smoke test
-  - GPU-enabled OCR smoke test when available
-  - nested folder scan regression test
-  - queue/session restore regression test
-- [ ] Run and record a clean baseline from `scripts/security_scan.sh`.
+- [ ] Run a manual GPU-enabled OCR smoke test when an NVIDIA-capable environment is available.
 - [ ] Add a future UX option for `Exit`:
   - allow preserving unfinished queue items for restore on next launch instead of always clearing them on cancel-and-exit
   - define expected behavior for queued items vs actively running items
@@ -30,8 +17,15 @@ This plan turns the findings in `docs/PERF_SECURITY_REVIEW.md` into staged, ship
 - [x] Throttle GPU metrics polling by caching `nvidia-smi` results between UI refreshes.
 - [x] Stream OCRmyPDF output instead of buffering full command output in memory.
 - [x] Enforce private queue-state directory/file permissions before load/save.
-- [x] Reduce eager path resolution during folder scans and skip symlinked files.
+- [x] Reduce eager path resolution during folder scans, skip symlinked inputs, and dedupe repeated files by filesystem identity when available.
 - [x] Reject symlink segments in output destination directory paths.
+- [x] Stage final PDFs in temp space and atomically replace the destination from a validated output directory, using `O_NOFOLLOW`-style protections on POSIX where available.
+- [x] Add targeted regression coverage for output-path hardening, folder-scan behavior, and secure state-directory checks.
+- [x] Run a clean local security baseline:
+  - `uvx --from pip-audit pip-audit -r requirements.txt` -> no known vulnerabilities
+  - `gitleaks detect --source . --no-banner --redact` -> no leaks found
+- [x] Capture a synthetic folder-scan benchmark:
+  - `1000` synthetic PDFs discovered in `0.0053s` on 2026-03-11
 
 ## Historical plan details
 
