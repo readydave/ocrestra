@@ -13,7 +13,7 @@ Batch OCR desktop app for Linux/Windows with drag-drop queueing, process-level c
 - Developer guide: `docs/DEVELOPER.md`
 - Function index: `docs/FUNCTION_INDEX.md`
 - Function descriptions: `docs/FUNCTION_DESCRIPTIONS.md`
-- Changelog: `docs/CHANGELOG.md`
+- Changelog: `changelog.md`
 - Garuda launcher setup: `docs/GARUDA_LAUNCHER.md`
 
 ## Highlights
@@ -50,6 +50,12 @@ Batch OCR desktop app for Linux/Windows with drag-drop queueing, process-level c
 - Queue/session persistence with restore prompt on restart
 - Theme menu: `Tools -> Themes` (`System`, `Dark`, `Light`)
 - `Tools -> Reset to Defaults` for UI and processing preferences
+
+## Release Versioning
+
+- Current project version is stored in `VERSION`.
+- Python package version is exposed as `ocr_app.__version__`.
+- Changelog entries are tracked in `changelog.md` using Keep a Changelog + SemVer.
 
 ## Quick Start
 
